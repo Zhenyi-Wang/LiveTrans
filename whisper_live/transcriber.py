@@ -5,14 +5,12 @@ import json
 import logging
 import os
 import zlib
-
 from inspect import signature
 from typing import BinaryIO, Iterable, List, NamedTuple, Optional, Tuple, Union
 
 import ctranslate2
 import numpy as np
 import tokenizers
-
 from faster_whisper.audio import decode_audio, pad_or_trim
 from faster_whisper.feature_extractor import FeatureExtractor
 from faster_whisper.tokenizer import _LANGUAGE_CODES, Tokenizer
@@ -123,6 +121,7 @@ class WhisperModel:
         """
         self.logger = get_logger()
 
+        # print("model_size_or_path:", model_size_or_path)
         if os.path.isdir(model_size_or_path):
             model_path = model_size_or_path
         else:
@@ -183,7 +182,7 @@ class WhisperModel:
 
         return config
 
-    def transcribe(                                                         # noqa: C901
+    def transcribe(  # noqa: C901
         self,
         audio: Union[str, BinaryIO, np.ndarray],
         language: Optional[str] = None,
@@ -298,9 +297,7 @@ class WhisperModel:
         duration = audio.shape[0] / sampling_rate
         duration_after_vad = duration
 
-        self.logger.info(
-            "Processing audio with duration %s", format_timestamp(duration)
-        )
+        self.logger.info(f"Processing audio with duration: {duration}")
 
         if vad_filter:
             if vad_parameters is None:
@@ -496,7 +493,7 @@ class WhisperModel:
                 content_frames - seek,
                 seek_clip_end - seek,
             )
-            segment = features[:, seek:seek + segment_size]
+            segment = features[:, seek : seek + segment_size]
             segment_duration = segment_size * self.feature_extractor.time_per_frame
             segment = pad_or_trim(segment, self.feature_extractor.nb_max_frames)
 
@@ -685,7 +682,7 @@ class WhisperModel:
                             continue
                         if is_segment_anomaly(segment):
                             next_segment = next_words_segment(
-                                current_segments[si + 1:]
+                                current_segments[si + 1 :]
                             )
                             if next_segment is not None:
                                 hal_next_start = next_segment["words"][0]["start"]
@@ -726,23 +723,25 @@ class WhisperModel:
                 all_tokens.extend(tokens)
                 idx += 1
 
-                all_segments.append(Segment(
-                    id=idx,
-                    seek=seek,
-                    start=segment["start"],
-                    end=segment["end"],
-                    text=text,
-                    tokens=tokens,
-                    temperature=temperature,
-                    avg_logprob=avg_logprob,
-                    compression_ratio=compression_ratio,
-                    no_speech_prob=result.no_speech_prob,
-                    words=(
-                        [Word(**word) for word in segment["words"]]
-                        if options.word_timestamps
-                        else None
-                    ),
-                ))
+                all_segments.append(
+                    Segment(
+                        id=idx,
+                        seek=seek,
+                        start=segment["start"],
+                        end=segment["end"],
+                        text=text,
+                        tokens=tokens,
+                        temperature=temperature,
+                        avg_logprob=avg_logprob,
+                        compression_ratio=compression_ratio,
+                        no_speech_prob=result.no_speech_prob,
+                        words=(
+                            [Word(**word) for word in segment["words"]]
+                            if options.word_timestamps
+                            else None
+                        ),
+                    )
+                )
 
             if (
                 not options.condition_on_previous_text
@@ -909,7 +908,7 @@ class WhisperModel:
 
         if previous_tokens:
             prompt.append(tokenizer.sot_prev)
-            prompt.extend(previous_tokens[-(self.max_length // 2 - 1):])
+            prompt.extend(previous_tokens[-(self.max_length // 2 - 1) :])
 
         prompt.extend(tokenizer.sot_sequence)
 

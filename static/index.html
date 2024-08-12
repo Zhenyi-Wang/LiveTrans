@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Translation Beta</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+    <style>
+      /* 在这里添加CSS样式 */
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        margin: 0;
+        padding: 10px;
+        background-color: #000;
+        color: #ddd;
+      }
+
+      .connection-dot {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        right: 10px;
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: #00ff55;
+      }
+
+      .connection-dot.disconnected {
+        background-color: #ff0000;
+      }
+
+      /* 定义一个闪烁的光标 */
+      .blinking-cursor {
+        position: relative;
+        top: -1px;
+        animation: 1s blink step-end infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      /* 载入圆圈 */
+      .loader {
+        display: inline-block;
+        border: 3px solid #555; /* Light grey */
+        border-top: 3px solid #0d2b40; /* Blue */
+        border-radius: 50%;
+        width: 0.6rem;
+        height: 0.6rem;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(20deg);
+        }
+        30% {
+          transform: rotate(220deg);
+          opacity: 0.5;
+        }
+        /* 50% {
+          transform: rotate(180deg);
+          opacity: 1;
+        }
+        70% {
+          transform: rotate(200deg);
+          opacity: 0.5;
+        } */
+        100% {
+          transform: rotate(380deg);
+        }
+      }
+
+      /* 定义一个slide动画 */
+      .slide-enter-active {
+        transition: all 0.5s ease;
+        transform-origin: bottom;
+      }
+
+      .slide-leave-active {
+        transition: all 0.5s ease;
+        transform-origin: top;
+        height: 0;
+      }
+
+      .slide-leave-to {
+        opacity: 0;
+        height: 0;
+        transform: rotateX(90deg);
+        /* transform: translateY(-100%); */
+      }
+
+      .slide-enter-from {
+        transform: rotateX(-90deg);
+      }
+
+      .slide-enter-to,
+      .slide-leave-from {
+        opacity: 100;
+        /* height: 0; */
+        /* transform: translateX(0); */
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Live Translation (Beta)</h1>
+    </header>
+    <div id="app">
+      <div
+        v-if="pastConfirmed.concat(confirmed).length===0 && current.text==''"
+      >
+        Welcome to the service. Please be patient and wait while we begin...
+      </div>
+      <div
+        v-for="segment of pastConfirmed.concat(confirmed)"
+        class="confirmed"
+        style="margin-bottom: 10px"
+      >
+        <transition name="slide">
+          <div style="color: #555" v-if="!segment.opti_text">
+            {{ segment.text }}
+          </div>
+          <div style="color: #5039c5" v-else>
+            <span style="color: #555">{{ segment.text }}</span><br />
+            {{ segment.opti_text }}
+          </div>
+        </transition>
+        <div style="color: #eee">
+          <transition name="slide">
+            <div v-if="segment.en_text"> {{ segment.en_text }} </div>
+            <div v-else> <div class="loader"></div> </div>
+          </transition>
+        </div>
+      </div>
+      <div style="position: relative; color: #555; border: 1px solid #555; padding: 10px;  padding-right: 30px; border-radius: 4px; margin-top: 20px;">
+        <!-- 🗣 -->
+        🔊 <span>{{ current.text }}</span
+        ><span class="blinking-cursor"> |</span>
+
+        <div v-if="connected" class="connection-dot"></div>
+        <div v-else class="connection-dot disconnected"></div>
+      </div>
+    </div>
+
+    <script>
+      const { createApp } = Vue;
+      let last_time = 0;
+      createApp({
+        data() {
+          return {
+            pastConfirmed: [],
+            confirmed: [],
+            current: "",
+            connected: true,
+            ws: null,
+          };
+        },
+        methods: {
+          startFetch() {
+            console.log("fetch..");
+            var that = this; // 额外保存Vue中的this
+            axios.get("/fetch?last_time=" + last_time).then(
+              (response) => {
+                console.log("fetch success");
+                that.connected = true;
+                that.wordUnits = that.wordUnits.concat(response.data);
+                if (response.data.length > 0) {
+                  last_time = response.data[response.data.length - 1].time;
+                }
+                setTimeout(() => this.startFetch(), 1000);
+              },
+              function (err) {
+                console.log("fetch error", err);
+                that.connected = false;
+                setTimeout(() => that.startFetch(), 1000);
+              }
+            );
+          },
+          connectWS() {
+            console.log("ws..");
+            this.ws = new WebSocket("/ws");
+
+            let that = this; // 额外保存Vue中的this
+
+            // 超时处理
+            const timeoutId = setTimeout(() => {
+              if (that.ws.readyState === WebSocket.CONNECTING) {
+                console.log("WebSocket connection timed out");
+                that.ws.close();
+              }
+            }, 5000);
+
+            // 连接成功处理
+            that.ws.onopen = function (event) {
+              console.log("WebSocket connection established");
+              that.connected = true;
+            };
+
+            // 连接错误处理
+            that.ws.onerror = function (event) {
+              console.error("WebSocket error observed:", event);
+              that.connected = false;
+            };
+
+            // 连接关闭处理
+            that.ws.onclose = function (event) {
+              console.log("WebSocket connection closed", event);
+              // 可以在这里进行清理操作或尝试重新连接
+              that.connected = false;
+              that.reconnectWS();
+            };
+
+            // 接收消息处理
+            that.ws.onmessage = function (event) {
+              // console.log("WebSocket message received:", event.data);
+              let data = JSON.parse(event.data);
+              if (data.init) {
+                that.pastConfirmed = that.pastConfirmed.concat(that.confirmed);
+                that.confirmed = data.init.confirmed;
+                that.current = data.init.current;
+              } else if (data.confirmed) {
+                that.confirmed = that.confirmed.concat(data.confirmed);
+              } else if (data.current) {
+                that.current = data.current;
+              } else if (data.update) {
+                // find the index of the update
+                let index = that.confirmed.findIndex(
+                  (item) => item.id == data.update.id
+                );
+
+                // console.log("id found for update:", index);
+                if (index >= 0) {
+                  // update the item
+                  that.confirmed[index] = data.update;
+                  // console.log("item updated:", that.confirmed[index]);
+                } else {
+                  // add the item
+                }
+              }
+            };
+          },
+          reconnectWS() {
+            console.log(`Attempting to reconnect...`);
+            setTimeout(this.connectWS, 1000);
+          },
+        },
+        mounted() {
+          // this.startFetch();
+          this.connectWS();
+        },
+      }).mount("#app");
+    </script>
+  </body>
+</html>

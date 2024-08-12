@@ -1,6 +1,8 @@
 import argparse
 import os
 
+os.environ['TRANSFORMERS_OFFLINE'] = '1'
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', '-p',
