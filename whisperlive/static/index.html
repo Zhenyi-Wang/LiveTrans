@@ -120,11 +120,11 @@
         Welcome to the service. Please be patient and wait while we begin...
       </div>
       <div
-        v-for="segment of pastConfirmed.concat(confirmed)"
+        v-for="segment of lastTenItems"
         class="confirmed"
         style="margin-bottom: 10px"
       >
-        <transition name="slide">
+        <!--transition name="slide"-->
           <div style="color: #555" v-if="!segment.opti_text">
             {{ segment.text }}
           </div>
@@ -132,18 +132,21 @@
             <span style="color: #555">{{ segment.text }}</span><br />
             {{ segment.opti_text }}
           </div>
-        </transition>
+        <!--/transition-->
         <div style="color: #eee">
-          <transition name="slide">
+          <!--transition name="slide"-->
             <div v-if="segment.en_text"> {{ segment.en_text }} </div>
             <div v-else> <div class="loader"></div> </div>
-          </transition>
+          <!--/transition-->
         </div>
       </div>
       <div style="position: relative; color: #555; border: 1px solid #555; padding: 10px;  padding-right: 30px; border-radius: 4px; margin-top: 20px;">
         <!-- 🗣 -->
         🔊 <span>{{ current.text }}</span
         ><span class="blinking-cursor"> |</span>
+		<br />
+		<span v-if="current.en_text">{{ current.en_text }}</span>
+		<span class="blinking-cursor" v-else></span>
 
         <div v-if="connected" class="connection-dot"></div>
         <div v-else class="connection-dot disconnected"></div>
@@ -162,6 +165,12 @@
             connected: true,
             ws: null,
           };
+        },
+        computed: {
+          lastTenItems() {
+//            return this.confirmed.slice(-30);
+			      return this.confirmed;
+          }
         },
         methods: {
           startFetch() {
@@ -232,7 +241,7 @@
                 that.current = data.current;
               } else if (data.update) {
                 // find the index of the update
-                let index = that.confirmed.findIndex(
+                let index = that.confirmed.findLastIndex(
                   (item) => item.id == data.update.id
                 );
 
@@ -260,3 +269,4 @@
     </script>
   </body>
 </html>
+

@@ -1,8 +1,15 @@
 import subprocess
 import time
 import signal
-import GPUtil
 import psutil
+# import GPUtil
+# import sys
+# import os
+
+# # 引入 whisperLive 目录
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# sys.path.append(os.path.join(current_dir, 'whisperlive'))
+
 
 # 全局变量，用于存储PID
 pids = []
@@ -39,9 +46,9 @@ signal.signal(signal.SIGINT, signal_handler)
 
 def restart_scripts():
     kill_processes()
-    run_script("run_server.py")
+    run_script("whisperlive/run_server.py")
     time.sleep(5)
-    run_script("run_client.py")
+    run_script("whisperlive/run_client.py")
 
 def get_gpu_utilization():
     import re
@@ -51,7 +58,7 @@ def get_gpu_utilization():
 
     # 找到包含"184"的行
     lines = smi_output.split("\n")
-    line_with_184 = next((line for line in lines if "184" in line), None)
+    line_with_184 = next((line for line in lines if "250" in line), None)
 
     # # 在找到的行中匹配第一个百分数
     # match = re.search(r"\d+%", line_with_184)
@@ -66,7 +73,7 @@ def get_gpu_utilization():
         return "P2"
 
 p8_count = 0 # 记录P8的数量
-p8_thres = 2 # P8重启的阈值
+p8_thres = 3 # P8重启的阈值
 
 def monitor_gpu():
     restart_scripts()
@@ -74,7 +81,7 @@ def monitor_gpu():
     while True:
         gpu_status = get_gpu_utilization()
         if gpu_status == "P8":
-            p8_count += 1
+            p8_count += 2
             if p8_count >= p8_thres:
                 print("*" * 50)
                 print("*", "GPU stopped, restarting scripts...")

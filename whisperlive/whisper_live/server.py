@@ -1097,11 +1097,11 @@ class ServeClientFasterWhisper(ServeClientBase):
 
         """
 
-        min_re_transcribe_thres = 2.0  # 上次识别结果与当前结果相差超过2s则重新识别
+        min_re_transcribe_thres = 1.0  # 上次识别结果与当前结果相差超过2s则重新识别
         min_duration_to_process = 3.0  # 转录最小时长
-        min_duration_sleep_time = 1.0  # 未达到转录最小时长则休眠时间
+        min_duration_sleep_time = 0.5  # 未达到转录最小时长则休眠时间
         empty_result_sleep_time = 0.5  # 识别无结果后休眠时间
-        good_result_sleep_time = 0.1  # 识别有结果后休眠时间
+        good_result_sleep_time = 0.5  # 识别有结果后休眠时间
         max_buffer_size = 35.0  # 未转录的最大时长，超过此时长则丢弃最早的部分
 
         last_trans_params = {  # 记录上次识别参数，避免重复识别
