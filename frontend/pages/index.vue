@@ -19,9 +19,6 @@ const toggleDark = useToggle(isDark);
 import { useStorage } from "@vueuse/core";
 
 // 配置
-const configAutoScroll = useStorage("config-auto-scroll", true);
-const toggleAutoScroll = useToggle(configAutoScroll);
-
 const configShowText = useStorage("config-show-text", true);
 const toggleShowText = useToggle(configShowText);
 
@@ -30,6 +27,98 @@ const toggleShowTextOpti = useToggle(configShowTextOpti);
 
 const configShowTextEn = useStorage("config-show-text-en", true);
 const toggleShowTextEn = useToggle(configShowTextEn);
+
+// 滚动控制
+const isAutoScroll = ref(true);
+const lastScrollTop = ref(0);
+const scrollTimer = ref(null);
+const scrollStartPosition = ref(0);
+const lastScrollHeight = ref(0);
+const { y } = useWindowScroll({ behavior: "smooth" });
+
+onMounted(() => {
+  // 在组件挂载后初始化滚动位置
+  lastScrollTop.value = window.scrollY;
+  window.addEventListener('scroll', onScroll);
+  connectWS();
+});
+
+const onScroll = () => {
+  const currentScrollTop = window.scrollY;
+  console.log('滚动事件：', {
+    当前位置: currentScrollTop,
+    上次位置: lastScrollTop.value,
+    开始位置: scrollStartPosition.value,
+    是否自动模式: isAutoScroll.value,
+    滚动方向: currentScrollTop < lastScrollTop.value ? '向上' : '向下'
+  });
+  
+  if (isAutoScroll.value) {
+    // 检测到向上滚动
+    if (currentScrollTop < lastScrollTop.value - 10) {  // 添加一个阈值，避免微小的滚动
+      console.log('检测到向上滚动，准备切换到手动模式');
+      // 如果已经有一个定时器在运行，清除它
+      if (scrollTimer.value) {
+        clearTimeout(scrollTimer.value);
+      }
+      
+      // 记录开始检测时的位置
+      scrollStartPosition.value = lastScrollTop.value;
+      
+      // 设置一个新的定时器，如果在 100ms 内持续向上滚动，才切换到手动模式
+      scrollTimer.value = setTimeout(() => {
+        const finalScrollTop = window.scrollY;
+        console.log('定时器触发，检查最终位置：', {
+          最终位置: finalScrollTop,
+          开始位置: scrollStartPosition.value,
+          差值: scrollStartPosition.value - finalScrollTop
+        });
+        
+        if (finalScrollTop < scrollStartPosition.value - 20) {
+          console.log('确认向上滚动，切换到手动模式');
+          isAutoScroll.value = false;
+        } else {
+          console.log('滚动不满足条件，保持自动模式');
+        }
+        scrollTimer.value = null;
+      }, 100);
+    }
+  } else {
+    // 在手动模式下，检测是否滚动到底部
+    const scrollHeight = document.documentElement.scrollHeight;
+    const windowHeight = window.innerHeight;
+    const scrolledToBottom = currentScrollTop + windowHeight >= scrollHeight - 10; // 添加10px的容差
+    
+    if (scrolledToBottom) {
+      console.log('用户已滚动到底部，切换到自动模式');
+      isAutoScroll.value = true;
+    }
+  }
+  
+  lastScrollTop.value = currentScrollTop;
+  lastScrollHeight.value = document.documentElement.scrollHeight;
+};
+
+const scrollToBottom = () => {
+  console.log('执行滚动到底部');
+  const targetScrollTop = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo({
+    top: targetScrollTop,
+    behavior: 'smooth'
+  });
+  
+  if (!isAutoScroll.value) {
+    console.log('切换到自动模式：用户点击按钮');
+    isAutoScroll.value = true;
+  }
+};
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', onScroll);
+  if (scrollTimer.value) {
+    clearTimeout(scrollTimer.value);
+  }
+});
 
 // 数据相关
 const ws = ref(null);
@@ -61,20 +150,22 @@ watch(currentSegment, () => {
   updateInputHeight();
 });
 
-// 自动滚动
-const { x, y } = useWindowScroll({ behavior: "smooth" });
-
-const scrollToBottom = () => {
-  y.value = document.documentElement.scrollHeight + 1000;
-  // console.log("scrollToBottom", y.value)
-};
-
+// 监听内容变化
 watchThrottled(
   [currentSegment, confirmedSegments],
   () => {
-    // console.log("confirmedSegments changed")
-    if (configAutoScroll.value) {
-      scrollToBottom();
+    if (isAutoScroll.value) {
+      console.log('内容更新，执行自动滚动');
+      nextTick(() => {
+        // 清除可能存在的定时器
+        if (scrollTimer.value) {
+          clearTimeout(scrollTimer.value);
+          scrollTimer.value = null;
+        }
+        scrollToBottom();
+      });
+    } else {
+      console.log('内容更新，但处于手动模式，不滚动');
     }
   },
   { throttle: 1000 }
@@ -152,10 +243,6 @@ const connectWS = () => {
     }
   };
 };
-
-onMounted(() => {
-  connectWS();
-});
 </script>
 
 <template>
@@ -176,15 +263,6 @@ onMounted(() => {
             <li @click="toggleDark()">
               <span v-if="!isDark"> 🌞 Light Mode | 亮色主题</span>
               <span v-else>🌙 Dark Mode | 暗色主题</span>
-            </li>
-            <li
-              @click="
-                toggleAutoScroll();
-                configAutoScroll && scrollToBottom();
-              "
-            >
-              <span v-if="!configAutoScroll">⏸️ Manual Scroll | 手动滚动</span>
-              <span v-else>⏬ Auto Scroll | 自动滚动</span>
             </li>
             <li @click="toggleShowText()">
               <span v-if="!configShowText">☐ </span>
@@ -248,6 +326,10 @@ onMounted(() => {
           <div v-if="wsConnected" class="connection-dot"></div>
           <div v-else class="connection-dot disconnected"></div>
         </div>
+      </div>
+      <!-- 滚动到底部按钮 -->
+      <div v-show="!isAutoScroll" class="scroll-bottom-btn" @click="scrollToBottom">
+        ⬇️
       </div>
     </div>
   </ClientOnly>
@@ -465,5 +547,31 @@ body.dark {
 
 .el-container {
   height: 100vh;
+}
+
+.scroll-bottom-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+  z-index: 1000;
+}
+
+.scroll-bottom-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.dark .scroll-bottom-btn {
+  background-color: rgba(50, 50, 50, 0.8);
 }
 </style>
