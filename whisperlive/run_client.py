@@ -18,5 +18,5 @@ client = TranscriptionClient(
     # dispatch_api="http://localhost:8081/backend/api/listen",
     dispatch_api="http://mini:8081/backend/api/listen",
 )
-# client(other_url="https://stream.hainingchurch.cn:38080/live/livestream.m3u8")
-client(other_url="https://stream.hainingchurch.cn:38080/live/livestream.flv")
+# client(other_url="https://realtime.hainingchurch.cn/live/livestream.m3u8")
+client(other_url="https://realtime.hainingchurch.cn/live/livestream.flv")
