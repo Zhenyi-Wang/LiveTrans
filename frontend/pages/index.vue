@@ -200,6 +200,10 @@ onMounted(() => {
             </li>
           </ul>
         </div>
+        <div class="scroll-control-btn" v-if="confirmedSegments.value.length > 0" @click="toggleAutoScroll(); configAutoScroll && scrollToBottom()">
+          <span v-if="!configAutoScroll">⏸️</span>
+          <span v-else>⏬</span>
+        </div>
       </header>
       <div id="app">
         <div v-if="isWaitingForService">
@@ -465,5 +469,14 @@ body.dark {
 
 .el-container {
   height: 100vh;
+}
+
+.scroll-control-btn {
+  position: fixed;
+  z-index: 0;  
+  top: 14rem;  
+  right: 2rem;
+  font-size: 1.5rem;
+  cursor: pointer;
 }
 </style>
