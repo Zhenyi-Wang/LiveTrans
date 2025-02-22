@@ -28,7 +28,7 @@ const toggleShowText = useToggle(configShowText);
 const configShowTextOpti = useStorage("config-show-text-opti", true);
 const toggleShowTextOpti = useToggle(configShowTextOpti);
 
-const configShowTextEn = useStorage("config-show-text-en", true);
+const configShowTextEn = useStorage("config-show-text-en", false);
 const toggleShowTextEn = useToggle(configShowTextEn);
 
 // 数据相关
