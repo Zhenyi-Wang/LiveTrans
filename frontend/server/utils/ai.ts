@@ -1,8 +1,10 @@
 import OpenAI from "openai";
-import { errorMessages } from "vue/compiler-sfc";
+
+
+const config = useRuntimeConfig();
 const openai = new OpenAI({
-  apiKey: "sk-uYp5oQ8rNbsXqS3y90851b5a6fD648279172Df1b6a924dA1",
-  baseURL: "http://192.168.1.12:18003/v1",
+  apiKey: config.openaiApiKey,
+  baseURL: config.openaiBaseUrl,
 });
 
 export async function aiQuery(
@@ -10,10 +12,7 @@ export async function aiQuery(
   message: string
 ): Promise<string> {
   const completion = await openai.chat.completions.create({
-    model: "qwen-turbo",
-    // model: "glm-4-flash",
-    // model: "deepseek-chat",
-    // model: "yi-lightning",
+    model: config.openaiModel || "google/gemini-2.5-flash-lite-preview-06-17",
     messages: [
       {
         role: "system",

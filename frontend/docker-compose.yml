@@ -12,4 +12,8 @@ services:
       - "8081:8081"
     environment:
       - PORT=8081
+      - NITRO_PORT=8081
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - OPENAI_MODEL=${OPENAI_MODEL}
     command: node server/index.mjs
