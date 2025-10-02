@@ -169,8 +169,7 @@ const getSegmentParagraphs = computed(() => {
   // 处理已确认的segments
   confirmedSegments.value.forEach(segment => {
     if (segment.text) {
-      const text = segment.opti_text || segment.text;
-      const segmentLength = text.length;
+      const segmentLength = (segment.opti_text || segment.text).length;
 
       currentSegments.push(segment);
       currentLength += segmentLength;
@@ -228,29 +227,24 @@ const getSegmentParagraphs = computed(() => {
 // 第二步：根据分段生成中文段落
 const getChineseParagraphs = computed(() => {
   return getSegmentParagraphs.value.map(segmentGroup => {
-    let html = "";
-    segmentGroup.forEach(seg => {
-      const text = seg.opti_text || seg.text;
-      if (seg.opti_text && seg.opti_text !== seg.text) {
-        html += `<span class="optimized-text">${text}</span>`;
-      } else {
-        html += text;
-      }
-    });
-    return { html };
+    return segmentGroup.map(seg => ({
+      text: seg.opti_text || seg.text,
+      isOptimized: seg.opti_text && seg.opti_text !== seg.text
+    }));
   });
 });
 
 // 第二步：根据分段生成英文段落
 const getEnglishParagraphs = computed(() => {
   return getSegmentParagraphs.value.map(segmentGroup => {
-    let enText = "";
-    segmentGroup.forEach(seg => {
-      if (seg.en_text) {
-        enText += (enText ? " " : "") + seg.en_text;
-      }
-    });
-    return enText || null;
+    const segments = segmentGroup.map(seg => ({
+      text: seg.en_text || '',
+      isTranslating: !seg.en_text, // 标记正在翻译的segment
+      id: seg.id || `seg-${Math.random().toString(36).substr(2, 9)}`, // 确保有唯一id用于动画
+      hasContent: !!seg.en_text // 是否有翻译内容
+    }));
+
+    return segments;
   });
 });
 
@@ -426,7 +420,9 @@ onMounted(() => {
   <ClientOnly>
     <div class="optimized-layout" :style="{
       '--chinese-font-size': configChineseFontSize + 'rem',
-      '--english-font-size': configEnglishFontSize + 'rem'
+      '--english-font-size': configEnglishFontSize + 'rem',
+      '--chinese-input-height': (configChineseFontSize * 1.8) + 'em',
+      '--english-input-height': (configEnglishFontSize * 1.8) + 'em'
     }">
       <header>
         <div class="header-content">
@@ -584,23 +580,36 @@ onMounted(() => {
           </div>
 
           <!-- 完整的中文段落显示 -->
-          <div class="chinese-article">
+          <div class="chinese-article flex-article">
             <div
               v-for="(paragraph, index) in getChineseParagraphs"
               :key="index"
               class="article-paragraph"
             >
-              <div class="paragraph-content" v-html="paragraph.html"></div>
-            </div>
-
-            <!-- 当前正在输入的中文内容 -->
-            <div v-if="currentSegment.text && configShowText" class="current-input">
-              <div class="paragraph-content current-input-content">
-                {{ currentSegment.text }}
-                <span class="blinking-cursor"> |</span>
+              <div class="paragraph-content">
+                <TransitionGroup name="segment" tag="div" class="segments-container">
+                  <span
+                    v-for="(segment, segIndex) in paragraph"
+                    :key="`cn-${index}-${segIndex}`"
+                    :class="[
+                      segment.isOptimized ? 'optimized-text' : 'unoptimized-text',
+                      'text-segment'
+                    ]"
+                  >
+                    {{ segment.text }}
+                  </span>
+                </TransitionGroup>
               </div>
             </div>
+          </div>
+          
+          <!-- 当前正在输入的中文内容 -->
+          <div v-show="configShowText" class="current-input">
+            <div class="paragraph-content current-input-content">
+              <span class="blinking-cursor"> |</span>
+              <span class="truncated-text">{{ currentSegment.text }}</span>
             </div>
+          </div>
         </div>
       </div>
 
@@ -636,7 +645,7 @@ onMounted(() => {
           </div>
 
           <!-- 完整的英文段落显示 -->
-          <div class="english-article">
+          <div class="english-article flex-article">
             <div
               v-for="(paragraph, index) in getEnglishParagraphs"
               :key="index"
@@ -644,25 +653,30 @@ onMounted(() => {
               :class="{ 'translating': !paragraph }"
             >
               <div class="paragraph-content english-content">
-                <div v-if="paragraph">{{ paragraph }}</div>
-                <div v-else class="loading-text">
-                  <FontAwesomeIcon icon="spinner" spin />
-                  <span>Translating...</span>
-                </div>
-              </div>
-              <!-- 翻译状态指示器 -->
-              <div v-if="!paragraph" class="status-indicator">
-                <FontAwesomeIcon icon="spinner" spin />
-                <span class="status-text">翻译中...</span>
+                <TransitionGroup name="segment" tag="div" class="segments-container">
+                  <span
+                    v-for="(segment, segIndex) in (paragraph || [])"
+                    :key="segment.id || `en-${index}-${segIndex}`"
+                    class="text-segment english-segment"
+                    :class="{
+                      'translating': segment.isTranslating,
+                      'has-translation': segment.hasContent
+                    }"
+                  >
+                    <span v-if="segment.hasContent" class="translation-content">{{ segment.text }} </span>
+                    <span v-if="segment.isTranslating" class="translating-dots">... </span>
+                    <span v-if="segment.hasContent && segIndex < (paragraph || []).length - 1"> </span>
+                  </span>
+                </TransitionGroup>
               </div>
             </div>
-
-            <!-- 当前正在输入的英文翻译 -->
-            <div v-if="lastCurrentEn && configShowTextEn" class="current-input">
-              <div class="paragraph-content current-input-content english-content">
-                {{ lastCurrentEn }}
-                <span class="blinking-cursor"> |</span>
-              </div>
+          </div>
+          
+          <!-- 当前正在输入的英文翻译 -->
+          <div v-show="configShowTextEn" class="current-input english-input">
+            <div class="paragraph-content current-input-content english-content">
+              <span class="blinking-cursor"> |</span>
+              <span class="truncated-text">{{ lastCurrentEn }}</span>
             </div>
           </div>
         </div>
@@ -924,9 +938,11 @@ header h2 {
 }
 
 .content-area {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   padding: 15px 20px;
-  overflow-y: auto;
+  overflow-y: hidden;
   overflow-x: hidden;
 }
 
@@ -941,6 +957,14 @@ header h2 {
 .english-article {
   max-width: 800px;
   margin: 0 auto;
+}
+
+.chinese-article.flex-article,
+.english-article.flex-article {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-bottom: 1em;
 }
 
 .article-paragraph {
@@ -975,23 +999,48 @@ header h2 {
   font-weight: 500;
 }
 
+/* 未优化文本的颜色 */
+.unoptimized-text {
+  color: #888;
+}
+
 /* 当前正在输入的临时内容样式 */
 .current-input {
   opacity: 0.6;
   font-style: italic;
   border-left: 3px solid #00adb5;
   padding-left: 15px;
+  flex-shrink: 0;
+  height: var(--chinese-input-height, 1.8em); /* 使用CSS变量动态设置高度 */
+  overflow: hidden;
 }
 
 .current-input-content {
-  color: #888;
-  font-size: 0.95em;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
-  line-height: 1.6;
-  max-height: 3.2em; /* 2行 * 1.6em 行高 */
+  text-overflow: ellipsis;
+  max-width: 100%;
+  direction: rtl;
+  text-align: left;
+}
+
+.truncated-text::after {
+  content: "\200E";
+}
+
+.blinking-cursor {
+  position: relative;
+  top: -1px;
+  animation: 1s blink step-end infinite;
+  margin-right: 2px;
+}
+
+.english-content .truncated-text {
+  padding-right: 8px;
+}
+
+.english-content .current-input {
+  height: var(--english-input-height, 1.8em); /* 使用CSS变量动态设置高度 */
 }
 
 
@@ -1030,7 +1079,6 @@ header h2 {
 .english-content .paragraph-content {
   color: var(--text-color);
   text-align: left;
-  text-indent: 0; /* 英文不缩进 */
   font-size: var(--english-font-size, 1.2rem);
 }
 
@@ -1057,6 +1105,64 @@ header h2 {
 .dark .optimized-text {
   color: #66b3ff;
   font-weight: 500;
+}
+
+.dark .unoptimized-text {
+  color: #999;
+}
+
+/* TransitionGroup 文本段落动画 */
+.segments-container {
+  display: inline;
+}
+
+.text-segment {
+  display: inline;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 4px;
+}
+
+.translating-dots {
+  animation: dots 1.5s infinite;
+}
+
+@keyframes dots {
+  0%, 20% { opacity: 0; }
+  50% { opacity: 1; }
+  80%, 100% { opacity: 0; }
+}
+
+/* 进入动画 */
+.segment-enter-active {
+  transition: all 1.5s ease-out;
+}
+
+.segment-enter-from {
+  opacity: 0;
+  transform: translateY(5px);
+}
+
+.segment-enter-to {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 翻译内容特殊动画 */
+.translation-content {
+  display: inline;
+  animation: fadeInUp 1.5s ease-out forwards;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .dark .english-content .paragraph-content {
@@ -1086,9 +1192,7 @@ header h2 {
 
 /* 英文样式 */
 .english-segment {
-  font-size: 1.1rem;
   line-height: 1.6;
-  color: #f38181;
   min-height: 1.6em;
 }
 
@@ -1192,12 +1296,10 @@ header h2 {
 
 .dark .optimized-text {
   color: #e0e0e0;
-  background-color: #1a1a1a;
-  border-left-color: #00adb5;
 }
 
 .dark .english-segment {
-  color: #f38181;
+  color: #e0e0e0;
 }
 
 .dark .english-segment.pending {
@@ -1307,6 +1409,15 @@ header h2 {
   }
 }
 
+@keyframes highlightFade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 @keyframes slideInRight {
   from {
     opacity: 0;
@@ -1367,7 +1478,7 @@ header h2 {
 
   .paragraph-content {
     font-size: var(--chinese-font-size, 1.3rem);
-    text-indent: 1.5em;
+    text-indent: 1em;
   }
 
   .english-content .paragraph-content {
@@ -1401,7 +1512,7 @@ header h2 {
 
   .paragraph-content {
     font-size: var(--chinese-font-size, 1.3rem);
-    text-indent: 1.2em;
+    text-indent: 1em;
     line-height: 1.6;
   }
 
