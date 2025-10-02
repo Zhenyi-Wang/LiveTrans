@@ -15,7 +15,12 @@ import {
   faPlus,
   faCircle,
   faWifi,
-  faSpinner
+  faSpinner,
+  faHistory,
+  faExchangeAlt,
+  faUndo,
+  faStepBackward,
+  faReply
 } from '@fortawesome/free-solid-svg-icons'
 import { library } from '@fortawesome/fontawesome-svg-core'
 
@@ -34,7 +39,12 @@ library.add(
   faPlus,
   faCircle,
   faWifi,
-  faSpinner
+  faSpinner,
+  faHistory,
+  faExchangeAlt,
+  faUndo,
+  faStepBackward,
+  faReply
 )
 
 const languages = usePreferredLanguages();
@@ -457,11 +467,11 @@ onMounted(() => {
 
             <div class="menu-content">
               <!-- 版本切换 -->
-              <div class="menu-section">
-                <div class="menu-item" @click="goToOriginalVersion">
-                  <div class="item-info">
-                    <span class="item-icon"><FontAwesomeIcon icon="file-alt" /></span>
-                    <span class="item-label">回到旧版界面 | Classic UI</span>
+              <div class="menu-section version-section">
+                <div class="menu-item version-item" @click="goToOriginalVersion">
+                  <span class="item-label">回到旧版界面 | Classic UI</span>
+                  <div class="item-icon version-icon">
+                    <FontAwesomeIcon icon="history" />
                   </div>
                 </div>
               </div>
@@ -528,6 +538,13 @@ onMounted(() => {
                     </button>
                     <button
                       class="length-option"
+                      :class="{ 'active': configParagraphLength === 150 }"
+                      @click="configParagraphLength = 150"
+                    >
+                      150
+                    </button>
+                    <button
+                      class="length-option"
                       :class="{ 'active': configParagraphLength === 200 }"
                       @click="configParagraphLength = 200"
                     >
@@ -539,13 +556,6 @@ onMounted(() => {
                       @click="configParagraphLength = 300"
                     >
                       300
-                    </button>
-                    <button
-                      class="length-option"
-                      :class="{ 'active': configParagraphLength === 400 }"
-                      @click="configParagraphLength = 400"
-                    >
-                      400
                     </button>
                   </div>
                 </div>
@@ -794,7 +804,6 @@ header {
   margin: 0;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
-  transition: opacity 0.3s ease;
 }
 
 .divider.hidden {
@@ -1598,6 +1607,53 @@ header h2 {
   color: var(--primary-color);
 }
 
+/* 版本切换特殊样式 */
+.version-section {
+  border-bottom: 2px solid var(--border-color);
+  background: linear-gradient(135deg, rgba(var(--primary-rgb, 0, 173, 181), 0.03) 0%, transparent 100%);
+  padding: 16px 0;
+  margin-bottom: 0;
+}
+
+.version-item {
+  justify-content: flex-end;
+  padding: 0;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-radius: 8px;
+}
+
+.version-item:hover {
+  background-color: rgba(var(--primary-rgb, 0, 173, 181), 0.06);
+  transform: translateX(-2px);
+}
+
+.version-item .item-label {
+  color: var(--text-color);
+  font-size: 0.95rem;
+  font-weight: 500;
+  opacity: 0.75;
+  transition: all 0.2s ease;
+}
+
+.version-item:hover .item-label {
+  opacity: 1;
+  color: var(--primary-color);
+}
+
+.version-icon {
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  color: #666;
+}
+
+.version-item:hover .version-icon {
+  opacity: 1;
+  transform: scale(1.1);
+  color: var(--primary-color);
+}
+
 .theme-btn {
   background: none;
   border: 2px solid var(--border-color);
@@ -1672,27 +1728,47 @@ header h2 {
   flex: 1;
   background: transparent;
   border: 2px solid var(--border-color);
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 0.8rem;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
   color: var(--text-color);
   cursor: pointer;
   transition: all 0.2s ease;
   font-weight: 500;
   text-align: center;
+  position: relative;
+  overflow: hidden;
 }
 
 .length-option:hover {
   background-color: var(--hover-bg);
   border-color: var(--primary-color);
   transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 173, 181, 0.1);
 }
 
 .length-option.active {
-  background-color: var(--primary-color);
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
   border-color: var(--primary-color);
   color: white;
-  box-shadow: 0 2px 8px rgba(0, 173, 181, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 173, 181, 0.4);
+  transform: translateY(-1px);
+  font-weight: 600;
+}
+
+.length-option.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.length-option.active:hover::before {
+  left: 100%;
 }
 
 .length-option:active {
@@ -1808,8 +1884,13 @@ input:checked + .toggle-slider:hover {
 }
 
 /* 滚动条样式 */
+.menu-panel {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 173, 181, 0.3) transparent;
+}
+
 .menu-panel::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .menu-panel::-webkit-scrollbar-track {
@@ -1817,11 +1898,20 @@ input:checked + .toggle-slider:hover {
 }
 
 .menu-panel::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 3px;
+  background: rgba(0, 173, 181, 0.3);
+  border-radius: 4px;
+  transition: background 0.2s ease;
 }
 
 .menu-panel::-webkit-scrollbar-thumb:hover {
-  background: var(--primary-color);
+  background: rgba(0, 173, 181, 0.5);
+}
+
+.dark .menu-panel::-webkit-scrollbar-thumb {
+  background: rgba(0, 173, 181, 0.4);
+}
+
+.dark .menu-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 173, 181, 0.6);
 }
 </style>
