@@ -1,4 +1,42 @@
 <script setup>
+// 引入Font Awesome
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import {
+  faCog,
+  faFileAlt,
+  faMoon,
+  faSun,
+  faArrowDown,
+  faSync,
+  faParagraph,
+  faExpand,
+  faCompress,
+  faMinus,
+  faPlus,
+  faCircle,
+  faWifi,
+  faSpinner
+} from '@fortawesome/free-solid-svg-icons'
+import { library } from '@fortawesome/fontawesome-svg-core'
+
+// 添加图标到库
+library.add(
+  faCog,
+  faFileAlt,
+  faMoon,
+  faSun,
+  faArrowDown,
+  faSync,
+  faParagraph,
+  faExpand,
+  faCompress,
+  faMinus,
+  faPlus,
+  faCircle,
+  faWifi,
+  faSpinner
+)
+
 const languages = usePreferredLanguages();
 
 const isSunday = new Date().getDay() == 0;
@@ -410,7 +448,7 @@ onMounted(() => {
           </div>
           <div class="header-right">
             <div v-show="!showMenu" class="menu-btn" @click="toggleMenu()">
-              ⚙️
+              <FontAwesomeIcon icon="cog" />
             </div>
           </div>
         </div>
@@ -422,7 +460,7 @@ onMounted(() => {
               <div class="menu-section">
                 <div class="menu-item" @click="goToOriginalVersion">
                   <div class="item-info">
-                    <span class="item-icon">📄</span>
+                    <span class="item-icon"><FontAwesomeIcon icon="file-alt" /></span>
                     <span class="item-label">回到旧版界面 | Classic UI</span>
                   </div>
                 </div>
@@ -443,17 +481,17 @@ onMounted(() => {
                 <h4>显示设置 | Display</h4>
                 <div class="menu-item theme-item" @click="toggleDark()">
                   <div class="item-info">
-                    <span class="item-icon">{{ isDark ? '🌙' : '🌞' }}</span>
+                    <span class="item-icon"><FontAwesomeIcon :icon="isDark ? 'moon' : 'sun'" /></span>
                     <span class="item-label">主题 | Theme</span>
                   </div>
                   <div class="theme-toggle-btn">
-                    {{ isDark ? '🌙' : '🌞' }}
+                    <FontAwesomeIcon :icon="isDark ? 'moon' : 'sun'" />
                   </div>
                 </div>
 
                 <div class="menu-item">
                   <div class="item-info">
-                    <span class="item-icon">⏬</span>
+                    <span class="item-icon"><FontAwesomeIcon icon="arrow-down" /></span>
                     <span class="item-label">自动滚动 | Auto Scroll</span>
                   </div>
                   <label class="switch">
@@ -464,7 +502,7 @@ onMounted(() => {
 
                 <div class="menu-item">
                   <div class="item-info">
-                    <span class="item-icon">🔄</span>
+                    <span class="item-icon"><FontAwesomeIcon icon="sync" /></span>
                     <span class="item-label">联动滚动 | Sync Scroll</span>
                   </div>
                   <label class="switch">
@@ -475,7 +513,7 @@ onMounted(() => {
 
                 <div class="menu-item">
                   <div class="item-info">
-                    <span class="item-icon">⏎</span>
+                    <span class="item-icon"><FontAwesomeIcon icon="paragraph" /></span>
                     <span class="item-label">段落长度 | Paragraph Length</span>
                   </div>
                 </div>
@@ -532,15 +570,19 @@ onMounted(() => {
           <div class="header-left">
             <div class="fullscreen-btn">
               <button class="font-size-btn" @click.stop="toggleChineseFullscreen">
-                {{ isChineseFullscreen ? '⊡' : '⛶' }}
+                <FontAwesomeIcon :icon="isChineseFullscreen ? 'compress' : 'expand'" />
               </button>
             </div>
             <h3 class="chinese-title">中文 | Chinese</h3>
           </div>
           <div class="header-right">
             <div class="font-size-controls">
-              <button class="font-size-btn" @click.stop="configChineseFontSize = Math.max(0.8, configChineseFontSize - 0.1)">A<sup>−</sup></button>
-              <button class="font-size-btn" @click.stop="configChineseFontSize = Math.min(2.0, configChineseFontSize + 0.1)">A<sup>+</sup></button>
+              <button class="font-size-btn" @click.stop="configChineseFontSize = Math.max(0.8, configChineseFontSize - 0.1)">
+                <FontAwesomeIcon icon="minus" />
+              </button>
+              <button class="font-size-btn" @click.stop="configChineseFontSize = Math.min(2.0, configChineseFontSize + 0.1)">
+                <FontAwesomeIcon icon="plus" />
+              </button>
             </div>
           </div>
         </div>
@@ -580,15 +622,19 @@ onMounted(() => {
           <div class="header-left">
             <div class="fullscreen-btn">
               <button class="font-size-btn" @click.stop="toggleEnglishFullscreen">
-                {{ isEnglishFullscreen ? '⊡' : '⛶' }}
+                <FontAwesomeIcon :icon="isEnglishFullscreen ? 'compress' : 'expand'" />
               </button>
             </div>
             <h3>English</h3>
           </div>
           <div class="header-right">
             <div class="font-size-controls">
-              <button class="font-size-btn" @click.stop="configEnglishFontSize = Math.max(0.8, configEnglishFontSize - 0.1)">A<sup>−</sup></button>
-              <button class="font-size-btn" @click.stop="configEnglishFontSize = Math.min(2.0, configEnglishFontSize + 0.1)">A<sup>+</sup></button>
+              <button class="font-size-btn" @click.stop="configEnglishFontSize = Math.max(0.8, configEnglishFontSize - 0.1)">
+                <FontAwesomeIcon icon="minus" />
+              </button>
+              <button class="font-size-btn" @click.stop="configEnglishFontSize = Math.min(2.0, configEnglishFontSize + 0.1)">
+                <FontAwesomeIcon icon="plus" />
+              </button>
             </div>
           </div>
         </div>
@@ -609,13 +655,13 @@ onMounted(() => {
               <div class="paragraph-content english-content">
                 <div v-if="paragraph">{{ paragraph }}</div>
                 <div v-else class="loading-text">
-                  <div class="loader"></div>
+                  <FontAwesomeIcon icon="spinner" spin />
                   <span>Translating...</span>
                 </div>
               </div>
               <!-- 翻译状态指示器 -->
               <div v-if="!paragraph" class="status-indicator">
-                <div class="loader"></div>
+                <FontAwesomeIcon icon="spinner" spin />
                 <span class="status-text">翻译中...</span>
               </div>
             </div>
@@ -814,7 +860,7 @@ header h2 {
 .menu-btn {
   background: none;
   border: none;
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   cursor: pointer;
   color: var(--text-color);
   padding: 6px 8px;
@@ -857,7 +903,7 @@ header h2 {
   border-radius: 6px;
   width: 40px;
   height: 32px;
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: var(--text-color);
   cursor: pointer;
   display: flex;
@@ -866,13 +912,8 @@ header h2 {
   transition: all 0.2s ease;
   padding: 0;
   line-height: 1;
-  font-weight: 600;
 }
 
-.font-size-btn sup {
-  font-size: 0.7em;
-  line-height: 1;
-}
 
 .font-size-btn:active {
   border-color: var(--primary-color);
@@ -969,6 +1010,11 @@ header h2 {
   align-self: flex-start;
 }
 
+.status-indicator svg {
+  color: var(--primary-color);
+  animation: spin 1s linear infinite;
+}
+
 .status-text {
   font-style: italic;
 }
@@ -989,6 +1035,11 @@ header h2 {
   color: #999;
   font-style: italic;
   opacity: 0.7;
+}
+
+.loading-text svg {
+  color: var(--primary-color);
+  animation: spin 1s linear infinite;
 }
 
 /* 暗色主题 */
@@ -1226,29 +1277,13 @@ header h2 {
   }
 }
 
-/* 加载圆圈 */
-.loader {
-  display: inline-block;
-  border: 3px solid #555;
-  border-top: 3px solid #0d2b40;
-  border-radius: 50%;
-  width: 0.6rem;
-  height: 0.6rem;
-  animation: spin 1s linear infinite;
-}
 
 @keyframes spin {
   0% {
-    transform: rotate(20deg);
+    transform: rotate(0deg);
   }
-
-  30% {
-    transform: rotate(220deg);
-    opacity: 0.5;
-  }
-
   100% {
-    transform: rotate(380deg);
+    transform: rotate(360deg);
   }
 }
 
@@ -1551,6 +1586,16 @@ header h2 {
   gap: 12px;
   flex-shrink: 0;
   min-width: fit-content;
+}
+
+.item-icon {
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--primary-color);
 }
 
 .theme-btn {
