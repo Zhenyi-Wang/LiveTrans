@@ -557,14 +557,14 @@ onMounted(() => {
 
       <!-- 上半部分：中文内容 -->
       <div class="chinese-section" :class="{ 'hidden': isEnglishFullscreen, 'fullscreen': isChineseFullscreen }">
-        <div class="section-header" :class="{ 'disabled': isEnglishFullscreen, 'fullscreen': isChineseFullscreen }" @click="toggleChineseFullscreen">
+        <div class="section-header" :class="{ 'disabled': isEnglishFullscreen, 'fullscreen': isChineseFullscreen }">
           <div class="header-left">
             <div class="fullscreen-btn">
               <button class="font-size-btn" @click.stop="toggleChineseFullscreen">
                 <FontAwesomeIcon :icon="isChineseFullscreen ? 'compress' : 'expand'" />
               </button>
             </div>
-            <h3 class="chinese-title">中文 | Chinese</h3>
+            <h3 class="chinese-title clickable" @click="toggleChineseFullscreen">中文 | Chinese</h3>
           </div>
           <div class="header-right">
             <div class="font-size-controls">
@@ -609,14 +609,14 @@ onMounted(() => {
 
       <!-- 下半部分：英文内容 -->
       <div class="english-section" :class="{ 'hidden': isChineseFullscreen, 'fullscreen': isEnglishFullscreen }">
-        <div class="section-header" :class="{ 'disabled': isChineseFullscreen, 'fullscreen': isEnglishFullscreen }" @click="toggleEnglishFullscreen">
+        <div class="section-header" :class="{ 'disabled': isChineseFullscreen, 'fullscreen': isEnglishFullscreen }">
           <div class="header-left">
             <div class="fullscreen-btn">
               <button class="font-size-btn" @click.stop="toggleEnglishFullscreen">
                 <FontAwesomeIcon :icon="isEnglishFullscreen ? 'compress' : 'expand'" />
               </button>
             </div>
-            <h3>English</h3>
+            <h3 class="clickable" @click="toggleEnglishFullscreen">English</h3>
           </div>
           <div class="header-right">
             <div class="font-size-controls">
@@ -816,9 +816,6 @@ header {
   cursor: pointer;
 }
 
-.section-header {
-  cursor: pointer;
-}
 
 .header-left {
   display: flex;
@@ -877,6 +874,21 @@ header h2 {
 
 .section-header h3.chinese-title {
   color: #00adb5;
+}
+
+.section-header h3.clickable {
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+  user-select: none;
+}
+
+.section-header h3.clickable:hover {
+  opacity: 0.8;
+}
+
+.section-header.disabled h3.clickable {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* 字号控制样式 */
