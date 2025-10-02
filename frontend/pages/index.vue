@@ -955,7 +955,7 @@ header h2 {
 /* 文章样式 */
 .chinese-article,
 .english-article {
-  max-width: 800px;
+  width: 800px;
   margin: 0 auto;
 }
 
@@ -1022,6 +1022,7 @@ header h2 {
   max-width: 100%;
   direction: rtl;
   text-align: left;
+  text-indent: 0.8em !important;
 }
 
 .truncated-text::after {
@@ -1184,7 +1185,7 @@ header h2 {
   color: #666;
   font-style: italic;
   padding: 40px 20px;
-  font-size: 1.1rem;
+  font-size: var(--chinese-font-size, 1.3rem);
   max-width: 600px;
   margin: 0 auto;
   line-height: 1.6;
@@ -1216,7 +1217,11 @@ header h2 {
   color: #666;
   font-style: italic;
   padding: 40px 20px;
-  font-size: 1.1rem;
+  font-size: var(--chinese-font-size, 1.3rem);
+}
+
+.english-content .welcome-message {
+  font-size: var(--english-font-size, 1.2rem);
 }
 
 /* 菜单样式 */
@@ -1483,11 +1488,12 @@ header h2 {
 
   .english-content .paragraph-content {
     font-size: var(--english-font-size, 1.2rem);
+    text-indent: 0;
   }
 
   .chinese-article,
   .english-article {
-    max-width: 100%;
+    width: 100%;
   }
 
   .article-paragraph {
@@ -1500,7 +1506,6 @@ header h2 {
   }
 
   .welcome-message {
-    font-size: 1rem;
     padding: 30px 15px;
   }
 }
@@ -1533,7 +1538,6 @@ header h2 {
   }
 
   .welcome-message {
-    font-size: 0.95rem;
     padding: 20px 10px;
   }
 
