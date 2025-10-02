@@ -148,8 +148,6 @@ const lastCurrentEn = ref("");
 const confirmedSegments = reactive({ value: [] });
 const wsConnected = ref(false);
 
-// 段落式排版相关 - 基于confirmedSegments
-const currentParagraph = ref("");
 
 // 每段最大字符数 - 使用计算属性响应配置变化
 const maxParagraphLength = computed(() => configParagraphLength.value);
@@ -157,8 +155,7 @@ const maxParagraphLength = computed(() => configParagraphLength.value);
 const isWaitingForService = computed(() => {
   return (
     currentSegment.value.text === "" &&
-    confirmedSegments.value.length === 0 &&
-    currentParagraph.value === ""
+    confirmedSegments.value.length === 0
   );
 });
 
@@ -230,7 +227,7 @@ const getSegmentParagraphs = computed(() => {
 
 // 第二步：根据分段生成中文段落
 const getChineseParagraphs = computed(() => {
-  const paragraphs = getSegmentParagraphs.value.map(segmentGroup => {
+  return getSegmentParagraphs.value.map(segmentGroup => {
     let html = "";
     segmentGroup.forEach(seg => {
       const text = seg.opti_text || seg.text;
@@ -242,18 +239,11 @@ const getChineseParagraphs = computed(() => {
     });
     return { html };
   });
-
-  // 添加当前正在输入的段落
-  if (currentParagraph.value) {
-    paragraphs.push({ html: currentParagraph.value });
-  }
-
-  return paragraphs;
 });
 
 // 第二步：根据分段生成英文段落
 const getEnglishParagraphs = computed(() => {
-  const paragraphs = getSegmentParagraphs.value.map(segmentGroup => {
+  return getSegmentParagraphs.value.map(segmentGroup => {
     let enText = "";
     segmentGroup.forEach(seg => {
       if (seg.en_text) {
@@ -262,13 +252,6 @@ const getEnglishParagraphs = computed(() => {
     });
     return enText || null;
   });
-
-  // 添加当前正在输入的段落
-  if (currentParagraph.value) {
-    paragraphs.push(null);
-  }
-
-  return paragraphs;
 });
 
 
@@ -407,8 +390,6 @@ const connectWS = () => {
     }
     if (data.current) {
       currentSegment.value = data.current;
-      // 添加到当前段落缓冲
-      currentParagraph.value += data.current.text;
     }
     if (data.current_en) {
       lastCurrentEn.value = data.current_en.en_text;
@@ -612,14 +593,14 @@ onMounted(() => {
               <div class="paragraph-content" v-html="paragraph.html"></div>
             </div>
 
-            <!-- 当前正在输入的段落 -->
-            <div v-if="currentParagraph && configShowText" class="current-paragraph">
-              <div class="paragraph-content">
-                {{ currentParagraph }}
+            <!-- 当前正在输入的中文内容 -->
+            <div v-if="currentSegment.text && configShowText" class="current-input">
+              <div class="paragraph-content current-input-content">
+                {{ currentSegment.text }}
                 <span class="blinking-cursor"> |</span>
               </div>
             </div>
-          </div>
+            </div>
         </div>
       </div>
 
@@ -676,10 +657,11 @@ onMounted(() => {
               </div>
             </div>
 
-            <!-- 当前英文翻译 -->
-            <div v-if="lastCurrentEn && configShowTextEn" class="current-translation">
-              <div class="paragraph-content english-content">
+            <!-- 当前正在输入的英文翻译 -->
+            <div v-if="lastCurrentEn && configShowTextEn" class="current-input">
+              <div class="paragraph-content current-input-content english-content">
                 {{ lastCurrentEn }}
+                <span class="blinking-cursor"> |</span>
               </div>
             </div>
           </div>
@@ -981,28 +963,32 @@ header h2 {
   font-weight: 500;
 }
 
-.current-paragraph {
-  opacity: 0.8;
+/* 当前正在输入的临时内容样式 */
+.current-input {
+  opacity: 0.6;
   font-style: italic;
   border-left: 3px solid #00adb5;
   padding-left: 15px;
-  margin-left: 2em;
 }
 
-.current-translation {
-  opacity: 0.8;
-  font-style: italic;
-  border-left: 3px solid var(--text-color);
-  padding-left: 15px;
-  margin-left: 15px;
+.current-input-content {
+  color: #888;
+  font-size: 0.95em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.6;
+  max-height: 3.2em; /* 2行 * 1.6em 行高 */
 }
 
-.dark .current-paragraph {
+
+.dark .current-input {
   border-left-color: #00adb5;
 }
 
-.dark .current-translation {
-  border-left-color: var(--text-color);
+.dark .current-input-content {
+  color: #999;
 }
 
 /* 状态指示器 */
@@ -1273,6 +1259,8 @@ header h2 {
   }
 }
 
+
+
 /* 闪烁光标 */
 .blinking-cursor {
   position: relative;
@@ -1285,7 +1273,6 @@ header h2 {
     opacity: 0;
   }
 }
-
 
 @keyframes spin {
   0% {
