@@ -253,18 +253,45 @@ const getEnglishParagraphs = computed(() => {
 const isScrolling = ref(false);
 const scrollSource = ref(''); // 'chinese' 或 'english'
 
+// 平滑滚动函数 - 0.5秒滚动动画
+const smoothScrollTo = (element, targetScrollTop, duration = 500) => {
+  const startScrollTop = element.scrollTop;
+  const distance = targetScrollTop - startScrollTop;
+  const startTime = performance.now();
+
+  const animateScroll = (currentTime) => {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+
+    // 使用 ease-in-out 缓动函数
+    const easeProgress = progress < 0.5
+      ? 2 * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+    element.scrollTop = startScrollTop + (distance * easeProgress);
+
+    if (progress < 1) {
+      requestAnimationFrame(animateScroll);
+    }
+  };
+
+  requestAnimationFrame(animateScroll);
+};
+
 // 自动滚动 - 分别控制中文和英文区域
 const scrollToBottom = () => {
   // 滚动中文区域到底部
-  const chineseContent = document.querySelector('.chinese-content');
+  const chineseContent = document.querySelector('.chinese-article');
   if (chineseContent) {
-    chineseContent.scrollTop = chineseContent.scrollHeight + 1000;
+    const targetScrollTop = chineseContent.scrollHeight + 1000;
+    smoothScrollTo(chineseContent, targetScrollTop, 500);
   }
 
   // 滚动英文区域到底部
-  const englishContent = document.querySelector('.english-content');
+  const englishContent = document.querySelector('.english-article');
   if (englishContent) {
-    englishContent.scrollTop = englishContent.scrollHeight + 1000;
+    const targetScrollTop = englishContent.scrollHeight + 1000;
+    smoothScrollTo(englishContent, targetScrollTop, 500);
   }
 };
 
@@ -376,7 +403,6 @@ const connectWS = () => {
 
   ws.value.onmessage = (event) => {
     let data = JSON.parse(event.data);
-    console.log('WebSocket received:', data);
 
     if (data.init) {
       currentSegment.value = data.init.current;
@@ -392,15 +418,13 @@ const connectWS = () => {
       confirmedSegments.value.push(data.confirmed);
     }
     if (data.update) {
-      console.log('Received update:', data.update);
       // 使用原始页面的逻辑更新confirmedSegments
       const index = confirmedSegments.value.findLastIndex((s) => {
         return s.id === data.update.id;
       });
-      console.log('Found segment at index:', index);
+
       if (index >= 0) {
         confirmedSegments.value[index] = data.update;
-        console.log('Updated segment:', confirmedSegments.value[index]);
       }
     }
   };
