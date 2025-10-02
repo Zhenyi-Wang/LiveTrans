@@ -22,9 +22,7 @@ export default defineEventHandler(async event => {
         })
         let contextSegs = saveCurrentSegment(data.current)
 
-        seg.opti_text = seg.text
-
-        await seg.translateText(contextSegs)
+        await seg.processText(contextSegs)
         broadcast({
           current_en: seg,
         })
@@ -48,15 +46,10 @@ export default defineEventHandler(async event => {
           confirmed: seg,
         })
 
-        await seg.optimizeText(contextSegs);
+        await seg.processText(contextSegs);
         broadcast({
           update: seg,
         })
-
-        await seg.translateText(contextSegs);
-        broadcast({
-          update: seg,
-        });
       })
     }
   }

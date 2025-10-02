@@ -1,4 +1,4 @@
-import { aiOptiText, aiTransText } from "./ai";
+import { aiProcessText } from "./ai";
 
 const CONTEXT_SEGMENTS_LIMIT = 10;
 
@@ -16,8 +16,7 @@ export class Segment {
     end: number = 0.0,
     text: string = "",
     opti_text: string = "",
-    en_text: string = "",
-    contextSegments = []
+    en_text: string = ""
   ) {
     this.id = id;
     this.start = start;
@@ -42,20 +41,15 @@ export class Segment {
     return Segment.fromObject(JSON.parse(jsonString));
   }
 
-  async optimizeText(contextSegments: Segment[]): Promise<void> {
+  async processText(contextSegments: Segment[]): Promise<void> {
     let context = contextSegments.map((s) => s.opti_text || s.text).join(" ");
-    // console.log('---optimize:', context, ' >>> ',this.text)
-    this.opti_text = await aiOptiText(context, this.text);
+    // console.log('---process:', context, ' >>> ',this.text)
+    const result = await aiProcessText(context, this.text);
+    this.opti_text = result.optimized;
+    this.en_text = result.translated;
   }
 
-  async translateText(contextSegments: Segment[]): Promise<void> {
-    let context = contextSegments
-      .map((s) => s.en_text || s.opti_text || s.text)
-      .join(" ");
-    // console.log('---translate:', context, ' >>> ',this.opti_text)
-    this.en_text = await aiTransText(context, this.opti_text);
-  }
-
+  
   toJSONString() {
     return JSON.stringify(this);
   }
