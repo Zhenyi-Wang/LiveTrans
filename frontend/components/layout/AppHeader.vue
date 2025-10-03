@@ -81,31 +81,31 @@
               <div class="paragraph-length-options">
                 <button
                   class="length-option"
-                  :class="{ 'active': configParagraphLength === 100 }"
-                  @click="$emit('update:configParagraphLength', 100)"
+                  :class="{ 'active': configParagraphLength === 50 }"
+                  @click="$emit('update:configParagraphLength', 50)"
                 >
-                  100
+                  50
                 </button>
                 <button
                   class="length-option"
-                  :class="{ 'active': configParagraphLength === 200 }"
-                  @click="$emit('update:configParagraphLength', 200)"
+                  :class="{ 'active': configParagraphLength === 150 }"
+                  @click="$emit('update:configParagraphLength', 150)"
                 >
-                  200
+                  150
                 </button>
                 <button
                   class="length-option"
-                  :class="{ 'active': configParagraphLength === 300 }"
-                  @click="$emit('update:configParagraphLength', 300)"
+                  :class="{ 'active': configParagraphLength === 250 }"
+                  @click="$emit('update:configParagraphLength', 250)"
                 >
-                  300
+                  250
                 </button>
                 <button
                   class="length-option"
-                  :class="{ 'active': configParagraphLength === 400 }"
-                  @click="$emit('update:configParagraphLength', 400)"
+                  :class="{ 'active': configParagraphLength === 350 }"
+                  @click="$emit('update:configParagraphLength', 350)"
                 >
-                  400
+                  350
                 </button>
               </div>
             </div>
