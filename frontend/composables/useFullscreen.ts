@@ -1,8 +1,9 @@
 import { ref, computed } from 'vue'
+import { useStorage } from '@vueuse/core'
 
 export function useFullscreen() {
-  const isChineseFullscreen = ref(false)
-  const isEnglishFullscreen = ref(false)
+  const isChineseFullscreen = useStorage('is-chinese-fullscreen', false)
+  const isEnglishFullscreen = useStorage('is-english-fullscreen', false)
 
   const toggleChineseFullscreen = () => {
     if (isChineseFullscreen.value) {
