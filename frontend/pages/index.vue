@@ -25,7 +25,12 @@ const {
   lastCurrentEn,
   confirmedSegments,
   isWaitingForService
-} = useWebSocket()
+} = useWebSocket(() => {
+  // WebSocket 初始化完成后的回调
+  if (configAutoScroll.value) {
+    scrollToBottom()
+  }
+})
 
 const { getChineseParagraphs, getEnglishParagraphs } = useParagraphLogic(
   confirmedSegments,
@@ -95,9 +100,12 @@ watchDataAndScroll(currentSegment, confirmedSegments)
         :is-fullscreen="isChineseFullscreen"
         :is-waiting-for-service="isWaitingForService"
         :last-current-en="lastCurrentEn"
+        :auto-scroll="configAutoScroll"
         @fullscreen="toggleChineseFullscreen"
         @font-size-change="configChineseFontSize = $event"
         @scroll="onChineseScroll"
+        @toggle-auto-scroll="toggleAutoScroll"
+        @scroll-to-bottom="scrollToBottom"
       />
 
       <!-- 分隔线 -->
@@ -115,9 +123,12 @@ watchDataAndScroll(currentSegment, confirmedSegments)
         :is-fullscreen="isEnglishFullscreen"
         :is-waiting-for-service="isWaitingForService"
         :last-current-en="lastCurrentEn"
+        :auto-scroll="configAutoScroll"
         @fullscreen="toggleEnglishFullscreen"
         @font-size-change="configEnglishFontSize = $event"
         @scroll="onEnglishScroll"
+        @toggle-auto-scroll="toggleAutoScroll"
+        @scroll-to-bottom="scrollToBottom"
       />
       </div>
     </div>

@@ -6,8 +6,11 @@
       :font-size="fontSize"
       :language="language"
       :header-classes="headerClasses"
+      :auto-scroll="autoScroll"
       @fullscreen="$emit('fullscreen')"
       @font-size-change="$emit('font-size-change', $event)"
+      @toggle-auto-scroll="$emit('toggle-auto-scroll')"
+      @scroll-to-bottom="$emit('scroll-to-bottom')"
     />
 
     <div class="content-area" :class="`${language}-content`">
@@ -81,10 +84,14 @@ const props = defineProps({
   lastCurrentEn: {
     type: String,
     default: ''
+  },
+  autoScroll: {
+    type: Boolean,
+    required: true
   }
 })
 
-defineEmits(['fullscreen', 'font-size-change', 'scroll'])
+defineEmits(['fullscreen', 'font-size-change', 'scroll', 'toggle-auto-scroll', 'scroll-to-bottom'])
 
 const welcomeMessage = computed(() => {
   return props.language === 'chinese'

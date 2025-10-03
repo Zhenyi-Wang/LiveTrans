@@ -1,6 +1,6 @@
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 
-export function useWebSocket() {
+export function useWebSocket(onInitCallback = null) {
   const ws = ref(null)
   const wsConnected = ref(false)
   const currentSegment = ref({ text: "" })
@@ -55,6 +55,13 @@ export function useWebSocket() {
       if (data.init) {
         currentSegment.value = data.init.current
         confirmedSegments.value = data.init.confirmed
+
+        // 触发初始化回调
+        if (onInitCallback && typeof onInitCallback === 'function') {
+          nextTick(() => {
+            onInitCallback()
+          })
+        }
       }
       if (data.current) {
         currentSegment.value = data.current
