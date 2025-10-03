@@ -23,6 +23,7 @@
       />
 
       <CurrentInput
+        v-if="!isWaitingForService"
         :language="language"
         :current-segment="currentSegment"
         :is-english="language === 'english'"
