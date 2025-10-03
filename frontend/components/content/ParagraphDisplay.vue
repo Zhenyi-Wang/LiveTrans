@@ -234,8 +234,8 @@ const processedParagraphs = computed(() => {
 /* 响应式调整 */
 @media (max-width: 768px) {
   .article-display {
-    padding-left: 2em;
-    padding-right: 2em;
+    padding-left: 1em;
+    padding-right: 1em;
     box-sizing: border-box;
   }
 
