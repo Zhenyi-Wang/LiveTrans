@@ -119,13 +119,6 @@ const welcomeMessage = computed(() => {
   flex-direction: column;
 }
 
-.chinese-content {
-  --chinese-font-size: v-bind(fontSize + 'rem');
-}
-
-.english-content {
-  --english-font-size: v-bind(fontSize + 'rem');
-}
 
 .welcome-message {
   text-align: center;
