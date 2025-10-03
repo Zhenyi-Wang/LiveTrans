@@ -8,6 +8,7 @@ export function useAppConfig() {
     attribute: "class",
     valueDark: "dark",
     valueLight: "",
+    initialValue: "dark",
   })
   const toggleDark = useToggle(isDark)
 
@@ -31,9 +32,9 @@ export function useAppConfig() {
   const configSyncScroll = useStorage("config-sync-scroll", true)
   const toggleSyncScroll = useToggle(configSyncScroll)
 
-  const configParagraphLength = useStorage("config-paragraph-length", 300)
-  const configChineseFontSize = useStorage("config-chinese-font-size", 1.3)
-  const configEnglishFontSize = useStorage("config-english-font-size", 1.2)
+  const configParagraphLength = useStorage("config-paragraph-length", 150)
+  const configChineseFontSize = useStorage("config-chinese-font-size", 1.1)
+  const configEnglishFontSize = useStorage("config-english-font-size", 1.1)
 
   // 计算属性
   const maxParagraphLength = computed(() => configParagraphLength.value)
