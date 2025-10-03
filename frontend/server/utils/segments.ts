@@ -1,4 +1,4 @@
-import { aiProcessText } from "./ai";
+import { aiProcessText, aiPreviewInput } from "./ai";
 
 const CONTEXT_SEGMENTS_LIMIT = 10;
 
@@ -42,12 +42,18 @@ export class Segment {
   }
 
   async processText(contextSegments: Segment[]): Promise<void> {
-    let context = contextSegments.map((s) => s.opti_text || s.text).join(" ");
-    // console.log('---process:', context, ' >>> ',this.text)
-    const result = await aiProcessText(context, this.text);
+    // console.log('---process:', contextSegments, ' >>> ',this.text)
+    const result = await aiProcessText(contextSegments, this.text);
     this.opti_text = result.optimized;
     this.en_text = result.translated;
   }
+
+  async previewInput(contextSegments: Segment[]): Promise<void> {
+    // console.log('---preview:', contextSegments, ' >>> ',this.text)
+    const result = await aiPreviewInput(contextSegments, this.text);
+    this.en_text = result.translated;
+  }
+  
 
   
   toJSONString() {

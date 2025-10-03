@@ -22,7 +22,7 @@ export default defineEventHandler(async event => {
         })
         let contextSegs = saveCurrentSegment(data.current)
 
-        await seg.processText(contextSegs)
+        await seg.previewInput(contextSegs)
         broadcast({
           current_en: seg,
         })
