@@ -131,8 +131,12 @@ const welcomeMessage = computed(() => {
   text-align: center;
   padding: 2em 20px;
   color: #666;
-  font-size: 1.1em;
+  font-size: var(--chinese-font-size, 1.3rem);
   line-height: 1.6;
+}
+
+.english-content .welcome-message {
+  font-size: var(--english-font-size, 1.2rem);
 }
 
 .dark .welcome-message {
@@ -143,7 +147,11 @@ const welcomeMessage = computed(() => {
 @media (max-width: 768px) {
   .welcome-message {
     padding: 1.5em 15px;
-    font-size: 1em;
+    font-size: var(--chinese-font-size, 1.3rem);
+  }
+
+  .english-content .welcome-message {
+    font-size: var(--english-font-size, 1.2rem);
   }
 }
 </style>
