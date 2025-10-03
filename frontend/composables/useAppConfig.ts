@@ -1,7 +1,23 @@
 import { ref, computed } from 'vue'
 import { useStorage, useToggle, useDark } from "@vueuse/core"
+import { useGlobalNotification } from './useNotification'
 
 export function useAppConfig() {
+  const { success } = useGlobalNotification()
+
+  // 获取当前语言设置（这里可以进一步优化，从全局状态获取）
+  const getCurrentLanguage = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('language') || 'chinese'
+    }
+    return 'chinese'
+  }
+
+  // 获取多语言文本
+  const t = (chineseText: string, englishText: string) => {
+    return getCurrentLanguage() === 'english' ? englishText : chineseText
+  }
+
   // 主题切换
   const isDark = useDark({
     selector: "body",
@@ -18,7 +34,14 @@ export function useAppConfig() {
 
   // 配置项
   const configAutoScroll = useStorage("config-auto-scroll", true)
-  const toggleAutoScroll = useToggle(configAutoScroll)
+  const toggleAutoScroll = () => {
+    configAutoScroll.value = !configAutoScroll.value
+    // 显示状态提示（中英文分行显示）
+    const chineseMessage = configAutoScroll.value ? '自动滚动已开启' : '自动滚动已关闭'
+    const englishMessage = configAutoScroll.value ? 'Auto-scroll enabled' : 'Auto-scroll disabled'
+    const message = `${chineseMessage}\n${englishMessage}`
+    success(message, { position: 'top-center' })
+  }
 
   const configShowText = useStorage("config-show-text", true)
   const toggleShowText = useToggle(configShowText)
