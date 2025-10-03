@@ -105,7 +105,6 @@ const processedParagraphs = computed(() => {
   overflow-y: auto;
   overflow-x: hidden;
   margin-bottom: 1em;
-  scroll-behavior: smooth;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
@@ -114,6 +113,10 @@ const processedParagraphs = computed(() => {
   padding-left: calc(50% - 300px);
   padding-right: calc(50% - 300px);
   box-sizing: border-box;
+  /* 优化手机触屏滚动 */
+  -webkit-overflow-scrolling: touch;
+  /* 禁用CSS平滑滚动，避免与JS冲突 */
+  scroll-behavior: auto;
 }
 
 .article-paragraph {

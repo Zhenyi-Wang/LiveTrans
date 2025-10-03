@@ -1,10 +1,28 @@
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 import { useThrottleFn } from '@vueuse/core'
+
+// 安全的触屏设备检测（支持SSR）
+const isTouchDevice = () => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false // SSR环境默认返回false
+  }
+  return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || navigator.msMaxTouchPoints > 0
+}
 
 export function useScrollSync(configSyncScroll, configAutoScroll) {
   const isScrolling = ref(false)
   const scrollSource = ref('') // 'chinese' 或 'english'
   const scrollEndSyncTimer = ref(null)
+  const finalSyncTimer = ref(null) // 最终同步定时器
+  const lastScrollTime = ref(0) // 最后一次滚动时间
+
+  // 触屏设备检测缓存（客户端安全）
+  const touchDevice = ref(false)
+
+  // 在客户端初始化时检测触屏设备
+  if (process.client) {
+    touchDevice.value = isTouchDevice()
+  }
 
   // 平滑滚动函数 - 0.5秒滚动动画
   const smoothScrollTo = (element, targetScrollTop, duration = 500) => {
@@ -48,46 +66,34 @@ export function useScrollSync(configSyncScroll, configAutoScroll) {
     }
   }
 
-  // 滚动结束后的最终同步
-  const finalizeScrollSync = (sourceElement, targetSelector) => {
-    if (scrollEndSyncTimer.value) {
-      clearTimeout(scrollEndSyncTimer.value)
+  // 精确的最终位置同步
+  const finalPositionSync = (sourceElement, targetSelector) => {
+    if (!configSyncScroll.value || !sourceElement) return
+
+    const targetElement = document.querySelector(targetSelector)
+    if (!targetElement) return
+
+    const sourceScrollHeight = sourceElement.scrollHeight - sourceElement.clientHeight
+    const targetScrollHeight = targetElement.scrollHeight - targetElement.clientHeight
+
+    if (sourceScrollHeight > 0 && targetScrollHeight > 0) {
+      const scrollRatio = sourceElement.scrollTop / sourceScrollHeight
+      const targetScrollTop = scrollRatio * targetScrollHeight
+
+      // 使用 requestAnimationFrame 确保精确同步
+      requestAnimationFrame(() => {
+        targetElement.scrollTop = targetScrollTop
+      })
     }
-
-    // 延迟一点时间确保滚动完全结束
-    scrollEndSyncTimer.value = setTimeout(() => {
-      if (configSyncScroll.value) {
-        const targetElement = document.querySelector(targetSelector)
-        if (targetElement && sourceElement) {
-          const sourceScrollHeight = sourceElement.scrollHeight - sourceElement.clientHeight
-          const targetScrollHeight = targetElement.scrollHeight - targetElement.clientHeight
-
-          if (sourceScrollHeight > 0 && targetScrollHeight > 0) {
-            const scrollRatio = sourceElement.scrollTop / sourceScrollHeight
-            const targetScrollTop = scrollRatio * targetScrollHeight
-
-            // 最终精确同步
-            targetElement.scrollTop = targetScrollTop
-          }
-        }
-      }
-    }, 100)
   }
 
-  // 联动滚动函数
+  // 优化的联动滚动函数
   const syncScroll = (sourceElement, targetSelector) => {
     if (isScrolling.value) return
 
     isScrolling.value = true
-    const targetElement = document.querySelector(targetSelector)
 
-    console.log('Sync scroll:', {
-      targetSelector,
-      targetElement: !!targetElement,
-      sourceElement: !!sourceElement,
-      sourceScrollTop: sourceElement?.scrollTop,
-      configSyncScroll: configSyncScroll.value
-    })
+    const targetElement = document.querySelector(targetSelector)
 
     if (targetElement && sourceElement) {
       // 计算滚动比例
@@ -98,53 +104,71 @@ export function useScrollSync(configSyncScroll, configAutoScroll) {
         const scrollRatio = sourceElement.scrollTop / sourceScrollHeight
         const targetScrollTop = scrollRatio * targetScrollHeight
 
-        console.log('Scroll calculation:', {
-          sourceScrollHeight,
-          targetScrollHeight,
-          scrollRatio,
-          targetScrollTop
-        })
-
-        // 直接设置滚动位置，不使用平滑滚动（避免冲突）
-        targetElement.scrollTop = targetScrollTop
-
-        // 使用 requestAnimationFrame 确保滚动位置准确
-        requestAnimationFrame(() => {
+        // 触屏设备使用更简单的同步策略
+        if (touchDevice.value) {
+          // 触屏设备：直接设置滚动位置，避免动画
           targetElement.scrollTop = targetScrollTop
-        })
+        } else {
+          // 桌面设备：使用requestAnimationFrame确保平滑
+          requestAnimationFrame(() => {
+            targetElement.scrollTop = targetScrollTop
+          })
+        }
       }
     }
 
-    // 减少阻塞时间，快速重置状态
+    // 根据设备类型调整状态重置时间
+    const resetDelay = touchDevice.value ? 100 : 50
     setTimeout(() => {
       isScrolling.value = false
-    }, 50)
+    }, resetDelay)
   }
 
-  // 节流处理的滚动事件
+  // 滚动结束检测和最终同步
+  const scheduleFinalSync = (sourceElement, targetSelector) => {
+    // 更新最后滚动时间
+    lastScrollTime.value = Date.now()
+
+    // 清除之前的定时器
+    if (scrollEndSyncTimer.value) {
+      clearTimeout(scrollEndSyncTimer.value)
+    }
+
+    // 设置新的滚动结束检测
+    scrollEndSyncTimer.value = setTimeout(() => {
+      // 检查是否真的停止了滚动（距离最后一次滚动超过150ms）
+      const now = Date.now()
+      if (now - lastScrollTime.value >= 150) {
+        // 滚动确实停止了，执行最终精确同步
+        finalPositionSync(sourceElement, targetSelector)
+      }
+    }, 150)
+  }
+
+  // 优化的节流处理滚动事件
   const onChineseScrollThrottled = (event) => {
     if (!isScrolling.value && configSyncScroll.value) {
-      console.log('Chinese scroll triggered, configSyncScroll:', configSyncScroll.value)
       scrollSource.value = 'chinese'
       syncScroll(event.target, '.english-article')
-      // 触发最终同步
-      finalizeScrollSync(event.target, '.english-article')
+
+      // 安排最终同步
+      scheduleFinalSync(event.target, '.english-article')
     }
   }
 
   const onEnglishScrollThrottled = (event) => {
     if (!isScrolling.value && configSyncScroll.value) {
-      console.log('English scroll triggered, configSyncScroll:', configSyncScroll.value)
       scrollSource.value = 'english'
       syncScroll(event.target, '.chinese-article')
-      // 触发最终同步
-      finalizeScrollSync(event.target, '.chinese-article')
+
+      // 安排最终同步
+      scheduleFinalSync(event.target, '.chinese-article')
     }
   }
 
-  // 使用节流函数包装滚动事件（减少节流间隔，提高响应性）
-  const onChineseScroll = useThrottleFn(onChineseScrollThrottled, 16)
-  const onEnglishScroll = useThrottleFn(onEnglishScrollThrottled, 16)
+  // 创建节流函数（统一使用50ms间隔，对手机和桌面都友好）
+  const onChineseScroll = useThrottleFn(onChineseScrollThrottled, 50)
+  const onEnglishScroll = useThrottleFn(onEnglishScrollThrottled, 50)
 
   // 监听数据变化并自动滚动
   const watchDataAndScroll = (currentSegment, confirmedSegments) => {
@@ -162,10 +186,11 @@ export function useScrollSync(configSyncScroll, configAutoScroll) {
   return {
     isScrolling,
     scrollSource,
+    touchDevice,
     smoothScrollTo,
     scrollToBottom,
     syncScroll,
-    finalizeScrollSync,
+    finalPositionSync,
     onChineseScroll,
     onEnglishScroll,
     watchDataAndScroll
