@@ -310,7 +310,7 @@ header h2 {
   top: 0;
   left: 0;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   background-color: rgba(0, 0, 0, 0.5);
   z-index: 1000;
   display: flex;
@@ -323,7 +323,7 @@ header h2 {
 .menu-panel {
   width: 400px;
   max-width: 90vw;
-  height: 100vh;
+  height: 100dvh;
   background: linear-gradient(135deg, #ffffff 0%, #f7fafc 100%);
   backdrop-filter: blur(10px);
   box-shadow: -10px 0 30px rgba(0, 0, 0, 0.1);
@@ -333,7 +333,7 @@ header h2 {
   overflow: hidden;
   position: relative;
   animation: slideInRight 0.3s ease-out;
-  max-height: 100vh;
+  max-height: 100dvh;
   display: flex;
   flex-direction: column;
 }

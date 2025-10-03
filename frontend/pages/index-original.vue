@@ -476,7 +476,7 @@ body.dark {
 }
 
 .el-container {
-  height: 100vh;
+  height: 100dvh;
 }
 
 .scroll-control-btn {
