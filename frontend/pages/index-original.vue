@@ -166,7 +166,7 @@ onMounted(() => {
 <template>
   <ClientOnly>
     <h1 v-if="false">
-      Welcome to Haining Xiashi Christ Church. We're delighted to have you here
+      Welcome to Haining Xiashi Christian Church. We're delighted to have you here
       on Sundays!
     </h1>
     <div v-else>
@@ -215,7 +215,7 @@ onMounted(() => {
       </header>
       <div id="app">
         <div v-if="isWaitingForService">
-          Welcome to Haining Xiashi Christ Church!😊 We're delighted to have you
+          Welcome to Haining Xiashi Christian Church!😊 We're delighted to have you
           here. Please be patient and wait while we begin...
         </div>
         <div

@@ -96,7 +96,7 @@ defineEmits(['fullscreen', 'font-size-change', 'scroll', 'toggle-auto-scroll', '
 const welcomeMessage = computed(() => {
   return props.language === 'chinese'
     ? '欢迎来到海宁市硖石基督教堂！😊 我们很高兴您的到来。请耐心等待，我们即将开始...'
-    : 'Welcome to Haining Xiashi Christ Church!😊 We\'re delighted to have you here. Please be patient and wait while we begin...'
+    : 'Welcome to Haining Xiashi Christian Church!😊 We\'re delighted to have you here. Please be patient and wait while we begin...'
 })
 </script>
 
