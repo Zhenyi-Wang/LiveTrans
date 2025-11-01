@@ -24,8 +24,8 @@ export function useScrollSync(configSyncScroll, configAutoScroll) {
     touchDevice.value = isTouchDevice()
   }
 
-  // 平滑滚动函数 - 0.5秒滚动动画
-  const smoothScrollTo = (element, targetScrollTop, duration = 500) => {
+  // 平滑滚动函数 - 1.5秒滚动动画
+  const smoothScrollTo = (element, targetScrollTop, duration = 1500) => {
     const startScrollTop = element.scrollTop
     const distance = targetScrollTop - startScrollTop
     const startTime = performance.now()
@@ -55,14 +55,14 @@ export function useScrollSync(configSyncScroll, configAutoScroll) {
     const chineseContent = document.querySelector('.chinese-article.article-display')
     if (chineseContent) {
       const targetScrollTop = chineseContent.scrollHeight + 1000
-      smoothScrollTo(chineseContent, targetScrollTop, 500)
+      smoothScrollTo(chineseContent, targetScrollTop, 1500)
     }
 
     // 滚动英文区域到底部
     const englishContent = document.querySelector('.english-article.article-display')
     if (englishContent) {
       const targetScrollTop = englishContent.scrollHeight + 1000
-      smoothScrollTo(englishContent, targetScrollTop, 500)
+      smoothScrollTo(englishContent, targetScrollTop, 1500)
     }
   }
 
