@@ -318,6 +318,8 @@ class TranscriptionTeeClient:
         self.output_recording_filename = output_recording_filename
         self.frames = b""
         self.p = pyaudio.PyAudio()
+        self.stderr_thread = None
+        self.stop_stderr = threading.Event()
         try:
             self.stream = self.p.open(
                 format=self.format,
@@ -449,7 +451,7 @@ class TranscriptionTeeClient:
             rtsp_url (str): The URL of the RTSP stream source.
         """
         process = self.get_rtsp_ffmpeg_process(rtsp_url)
-        self.handle_ffmpeg_process(process, stream_type="RTSP")
+        self.handle_ffmpeg_process(process, stream_type="RTSP", create_process_func=lambda: self.get_rtsp_ffmpeg_process(rtsp_url))
 
     def process_hls_stream(self, hls_url, save_file):
         """
@@ -460,8 +462,8 @@ class TranscriptionTeeClient:
             save_file （str, optional): Local path to save the network stream.
         """
         process = self.get_hls_ffmpeg_process(hls_url, save_file)
-        self.handle_ffmpeg_process(process, stream_type="HLS")
-    
+        self.handle_ffmpeg_process(process, stream_type="HLS", create_process_func=lambda: self.get_hls_ffmpeg_process(hls_url, save_file))
+
     def process_other_stream(self, other_url):
         """
         Connect to an online source, process the audio stream, and send it for trascription.
@@ -470,25 +472,62 @@ class TranscriptionTeeClient:
             other_url (str): The URL of the stream source.
         """
         process = self.get_rtsp_ffmpeg_process(other_url)
-        self.handle_ffmpeg_process(process, stream_type="Other")
+        self.handle_ffmpeg_process(process, stream_type="Other", create_process_func=lambda: self.get_rtsp_ffmpeg_process(other_url))
 
 
-    def handle_ffmpeg_process(self, process, stream_type):
+    def handle_ffmpeg_process(self, process, stream_type, create_process_func):
         print(f"[INFO]: Connecting to {stream_type} stream...")
-        stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
-        stderr_thread.start()
+        self.stop_stderr.clear()
+        self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
+        self.stderr_thread.start()
+
+        retry_delay = 3  # 初始延迟
+        max_delay = 60   # 最大延迟
+        first_disconnect_time = None  # 第一次断开的时间
+        grace_period = 600  # 10分钟内保持3秒间隔
+
         try:
-            # Process the stream
             while True:
                 in_bytes = process.stdout.read(self.chunk * 2)  # 2 bytes per sample
                 if not in_bytes:
-                    break
+                    # 流断开，尝试重连
+                    now = time.time()
+
+                    # 记录第一次断开时间
+                    if first_disconnect_time is None:
+                        first_disconnect_time = now
+
+                    # 10分钟后开始指数退避
+                    if now - first_disconnect_time > grace_period:
+                        retry_delay = min(retry_delay * 2, max_delay)
+
+                    print(f"[WARN] {stream_type} stream disconnected, retrying in {retry_delay}s...")
+
+                    # 停止旧的 stderr 线程
+                    self.stop_stderr.set()
+                    if self.stderr_thread:
+                        self.stderr_thread.join(timeout=1)
+                    self.stop_stderr.clear()
+
+                    process.kill()
+                    time.sleep(retry_delay)
+
+                    # 重新创建 ffmpeg 进程
+                    process = create_process_func()
+                    self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
+                    self.stderr_thread.start()
+                    continue
+
+                # 重连成功，重置状态
+                retry_delay = 3
+                first_disconnect_time = None
                 audio_array = self.bytes_to_float_array(in_bytes)
                 self.multicast_packet(audio_array.tobytes())
 
         except Exception as e:
             print(f"[ERROR]: Failed to connect to {stream_type} stream: {e}")
         finally:
+            self.stop_stderr.set()
             self.close_all_clients()
             self.write_all_clients_srt()
             if process:
@@ -532,6 +571,8 @@ class TranscriptionTeeClient:
             process (subprocess.Popen): The process whose stderr output will be logged.
         """
         for line in iter(process.stderr.readline, b""):
+            if self.stop_stderr.is_set():
+                break
             logging.debug(f'[STDERR]: {line.decode()}')
 
     def save_chunk(self, n_audio_file):

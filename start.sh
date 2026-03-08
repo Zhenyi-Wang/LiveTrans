@@ -1,4 +1,7 @@
 #!/bin/bash
+# 切换到项目目录
+cd "$(dirname "$0")"
+
 # 初始化 conda
 eval "$(conda shell.bash hook)"
 

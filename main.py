@@ -78,23 +78,23 @@ p8_thres = 3 # P8重启的阈值
 def monitor_gpu():
     restart_scripts()
     time.sleep(120)
-    while True:
-        gpu_status = get_gpu_utilization()
-        if gpu_status == "P8":
-            p8_count += 2
-            if p8_count >= p8_thres:
-                print("*" * 50)
-                print("*", "GPU stopped, restarting scripts...")
-                print("*" * 50)
-                restart_scripts()
-                time.sleep(120)  # Wait for scripts to start up
-            else:
-                print("*" * 30, f"GPU P8 detected, count {p8_count} / {p8_thres}")
-        else:
-            p8_count = 0
-            print("*" * 30, f"GPU status is {gpu_status}")
+    # while True:
+    #     gpu_status = get_gpu_utilization()
+    #     if gpu_status == "P8":
+    #         p8_count += 2
+    #         if p8_count >= p8_thres:
+    #             print("*" * 50)
+    #             print("*", "GPU stopped, restarting scripts...")
+    #             print("*" * 50)
+    #             restart_scripts()
+    #             time.sleep(120)  # Wait for scripts to start up
+    #         else:
+    #             print("*" * 30, f"GPU P8 detected, count {p8_count} / {p8_thres}")
+    #     else:
+    #         p8_count = 0
+    #         print("*" * 30, f"GPU status is {gpu_status}")
 
-        time.sleep(5)
+    #     time.sleep(5)
 
 
 if __name__ == "__main__":
