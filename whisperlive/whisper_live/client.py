@@ -481,10 +481,10 @@ class TranscriptionTeeClient:
         self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
         self.stderr_thread.start()
 
-        retry_delay = 3  # 初始延迟
+        retry_delay = 2  # 初始延迟
         max_delay = 60   # 最大延迟
         first_disconnect_time = None  # 第一次断开的时间
-        grace_period = 600  # 10分钟内保持3秒间隔
+        grace_period = 5400  # 90分钟内保持2秒间隔
 
         try:
             while True:
@@ -497,7 +497,7 @@ class TranscriptionTeeClient:
                     if first_disconnect_time is None:
                         first_disconnect_time = now
 
-                    # 10分钟后开始指数退避
+                    # 90分钟后开始指数退避
                     if now - first_disconnect_time > grace_period:
                         retry_delay = min(retry_delay * 2, max_delay)
 
@@ -519,7 +519,7 @@ class TranscriptionTeeClient:
                     continue
 
                 # 重连成功，重置状态
-                retry_delay = 3
+                retry_delay = 2
                 first_disconnect_time = None
                 audio_array = self.bytes_to_float_array(in_bytes)
                 self.multicast_packet(audio_array.tobytes())
