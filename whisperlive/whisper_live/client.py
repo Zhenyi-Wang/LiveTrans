@@ -235,6 +235,18 @@ class Client:
         except Exception as e:
             print(e)
 
+    def send_reset_to_server(self):
+        """
+        Send a reset signal to the server to clear audio buffer state.
+        Called when stream reconnects after disconnection.
+        """
+        try:
+            reset_message = json.dumps({"type": "RESET_AUDIO_BUFFER"})
+            self.client_socket.send(reset_message)
+            print("[DEBUG] Sent RESET_AUDIO_BUFFER to server")
+        except Exception as e:
+            print(f"[ERROR] Failed to send reset signal: {e}")
+
     def close_websocket(self):
         """
         Close the WebSocket connection and join the WebSocket thread.
@@ -308,6 +320,7 @@ class TranscriptionTeeClient:
         self.clients = clients
         if not self.clients:
             raise Exception("At least one client is required.")
+        self.start_time = time.time()  # 追踪客户端开始运行时间
         self.chunk = 4096
         # self.chunk = 16000
         self.format = pyaudio.paInt16
@@ -485,6 +498,7 @@ class TranscriptionTeeClient:
         max_delay = 60   # 最大延迟
         first_disconnect_time = None  # 第一次断开的时间
         grace_period = 5400  # 90分钟内保持2秒间隔
+        reconnect_count = 0  # 重连次数计数
 
         try:
             while True:
@@ -492,16 +506,18 @@ class TranscriptionTeeClient:
                 if not in_bytes:
                     # 流断开，尝试重连
                     now = time.time()
+                    reconnect_count += 1
 
                     # 记录第一次断开时间
                     if first_disconnect_time is None:
                         first_disconnect_time = now
+                        print(f"[DEBUG stream] {stream_type} stream disconnected at runtime={time.time()-self.start_time:.1f}s (first time), reconnect_count={reconnect_count}")
 
                     # 90分钟后开始指数退避
                     if now - first_disconnect_time > grace_period:
                         retry_delay = min(retry_delay * 2, max_delay)
 
-                    print(f"[WARN] {stream_type} stream disconnected, retrying in {retry_delay}s...")
+                    print(f"[WARN] {stream_type} stream disconnected, retrying in {retry_delay}s... (reconnect #{reconnect_count}, disconnected_since={now-first_disconnect_time:.1f}s)")
 
                     # 停止旧的 stderr 线程
                     self.stop_stderr.set()
@@ -519,10 +535,20 @@ class TranscriptionTeeClient:
                     continue
 
                 # 重连成功，重置状态
+                if reconnect_count > 0:
+                    print(f"[DEBUG stream] {stream_type} stream reconnected after {reconnect_count} retries, audio resuming...")
+                    # 通知服务端重置音频缓冲区状态
+                    for client in self.clients:
+                        client.send_reset_to_server()
+                    time.sleep(0.5)  # 等待服务端处理重置请求
                 retry_delay = 2
                 first_disconnect_time = None
+                old_count = reconnect_count
+                reconnect_count = 0
                 audio_array = self.bytes_to_float_array(in_bytes)
                 self.multicast_packet(audio_array.tobytes())
+                if old_count > 0:
+                    print(f"[DEBUG stream] Sent first audio packet after reconnect, bytes={len(in_bytes)}")
 
         except Exception as e:
             print(f"[ERROR]: Failed to connect to {stream_type} stream: {e}")

@@ -73,6 +73,7 @@ class ClientManager:
         """
         client = self.clients.pop(websocket, None)
         if client:
+            logging.info(f"[DEBUG remove_client] Removing client: uid={client.client_uid}, t_off={client.timestamp_offset:.1f}s, f_off={client.frames_offset:.1f}s, runtime={client.get_runtime():.1f}s")
             client.cleanup()
         self.start_times.pop(websocket, None)
 
@@ -212,6 +213,7 @@ class TranscriptionServer:
                 use_vad=self.use_vad,
                 single_model=self.single_model,
             )
+            logging.info(f"[DEBUG new_client] Client connected: uid={options['uid']}, lang={options['language']}, task={options['task']}, model={options['model']}")
             logging.info("Running faster_whisper backend.")
 
         if client is None:
@@ -229,11 +231,21 @@ class TranscriptionServer:
             websocket: The websocket to receive audio from.
 
         Returns:
-            A numpy array containing the audio.
+            A numpy array containing the audio, or "RESET" if reset signal received.
         """
         frame_data = websocket.recv()
         if frame_data == b"END_OF_AUDIO":
             return False
+
+        # Check if this is a reset signal (JSON message)
+        if isinstance(frame_data, str):
+            try:
+                msg = json.loads(frame_data)
+                if msg.get("type") == "RESET_AUDIO_BUFFER":
+                    return "RESET"
+            except json.JSONDecodeError:
+                pass
+
         return np.frombuffer(frame_data, dtype=np.float32)
 
     def handle_new_connection(
@@ -275,6 +287,13 @@ class TranscriptionServer:
     def process_audio_frames(self, websocket):
         frame_np = self.get_audio_from_websocket(websocket)
         client = self.client_manager.get_client(websocket)
+
+        # Handle reset signal (string "RESET" vs numpy array)
+        if isinstance(frame_np, str) and frame_np == "RESET":
+            logging.info(f"[DEBUG reset] Received RESET signal from client {client.client_uid}, resetting audio buffer state")
+            client.reset_audio_buffer()
+            return True
+
         if frame_np is False:
             if self.backend.is_tensorrt():
                 client.set_eos(True)
@@ -479,6 +498,7 @@ class ServeClientBase(object):
         # threading
         self.lock = threading.Lock()
         self.begin_time = time.time()
+        self.reset_requested = False  # 标记是否需要重置 last_trans_params
 
     def get_runtime(self):
         """
@@ -523,9 +543,10 @@ class ServeClientBase(object):
             # check timestamp offset(should be >= self.frame_offset)
             # this basically means that there is no speech as timestamp offset hasnt updated
             # and is less than frame_offset
-            print('Buffer size exceeded, discarding oldest audio data')
+            print(f'[DEBUG trim_audio] Buffer exceeded {self.MAX_AUDIO_LENGTH}s, trim {trim_seconds:.1f}s, new frames_offset={self.frames_offset:.1f}s, timestamp_offset={self.timestamp_offset:.1f}s')
             if self.timestamp_offset < self.frames_offset:
                 self.timestamp_offset = self.frames_offset
+                print(f'[DEBUG reset_timestamp] timestamp_offset reset to frames_offset={self.frames_offset:.1f}s')
         if self.frames_np is None:
             self.frames_np = frame_np.copy()
         else:
@@ -534,7 +555,7 @@ class ServeClientBase(object):
         print("-" * 30)
         print(f"Runtime: {self.get_runtime()}s")
         print(
-            f"Addeed {frame_np.shape[0]/self.RATE:.1f} seconds to buffer, total {self.frames_np.shape[0]/self.RATE:.1f} seconds, timestamp_offset {self.frames_offset:.1f}s, frame_offset {self.timestamp_offset:.1f}s"
+            f"[DEBUG add_frames] Added {frame_np.shape[0]/self.RATE:.1f}s, total buffer: {self.frames_np.shape[0]/self.RATE:.1f}s, timestamp_offset={self.frames_offset:.1f}s, frame_offset={self.timestamp_offset:.1f}s"
         )
 
     def clip_audio_if_no_valid_segment(self):
@@ -651,6 +672,24 @@ class ServeClientBase(object):
             json.dumps({"uid": self.client_uid, "message": self.DISCONNECT})
         )
 
+    def reset_audio_buffer(self):
+        """
+        Reset the audio buffer state when stream reconnects.
+        This clears the timestamp offset and buffer to treat incoming audio as a new stream.
+        """
+        self.lock.acquire()
+        old_t_off = self.timestamp_offset
+        old_f_off = self.frames_offset
+        old_buffer = self.frames_np.shape[0] / self.RATE if self.frames_np is not None else 0
+
+        self.timestamp_offset = 0.0
+        self.frames_offset = 0.0
+        self.frames_np = None
+        self.reset_requested = True  # 通知处理循环重置 last_trans_params
+
+        self.lock.release()
+        logging.info(f"[DEBUG reset_buffer] Buffer reset: t_off {old_t_off:.1f}s -> 0, f_off {old_f_off:.1f}s -> 0, buffer {old_buffer:.1f}s cleared")
+
     def cleanup(self):
         """
         Perform cleanup tasks before exiting the transcription service.
@@ -660,7 +699,7 @@ class ServeClientBase(object):
         associated with the transcription process.
 
         """
-        logging.info("Cleaning up.")
+        logging.info(f"[DEBUG cleanup] Client cleanup: uid={self.client_uid}, t_off={self.timestamp_offset:.1f}s, runtime={self.get_runtime():.1f}s")
         self.exit = True
 
 
@@ -809,7 +848,9 @@ class ServeClientTensorRT(ServeClientBase):
             self.transcript.append({"text": last_segment + " "})
         elif self.transcript[-1]["text"].strip() != last_segment:
             self.transcript.append({"text": last_segment + " "})
+        old_offset = self.timestamp_offset
         self.timestamp_offset += duration
+        print(f"[DEBUG update_t_off] timestamp_offset: {old_offset:.1f}s + {duration:.1f}s = {self.timestamp_offset:.1f}s, transcript_count={len(self.transcript)}")
 
     def speech_to_text(self):
         """
@@ -1116,6 +1157,12 @@ class ServeClientFasterWhisper(ServeClientBase):
                 logging.info("Exiting speech to text thread")
                 break
 
+            # 检查是否需要重置 last_trans_params（流重连后）
+            if self.reset_requested:
+                last_trans_params = {"b_size": 0, "t_off": 0, "f_off": 0, "duration": 0}
+                self.reset_requested = False
+                logging.info("[DEBUG reset_params] last_trans_params reset due to stream reconnect")
+
             if self.frames_np is None:
                 continue
 
@@ -1129,6 +1176,7 @@ class ServeClientFasterWhisper(ServeClientBase):
                 duration = input_bytes.shape[0] / self.RATE
                 print("-" * 30)
                 print(f"Runtime: {self.get_runtime()}s")
+                print(f"[DEBUG process_loop] samples_take={samples_take}, duration={duration:.1f}s, t_off={self.timestamp_offset:.1f}, f_off={self.frames_offset:.1f}, buffer_size={self.frames_np.shape[0]/self.RATE:.1f}s")
 
                 if all(
                     [
@@ -1138,14 +1186,14 @@ class ServeClientFasterWhisper(ServeClientBase):
                     ]
                 ):
                     print(
-                        f"Skip re-transcribe {duration}s, sleep {min_duration_sleep_time}, t_off: {self.timestamp_offset:.1f} / {last_trans_params['t_off']:.1f}s, f_off: {self.frames_offset:.1f} / {last_trans_params['f_off']:.1f}s, b_size: {self.frames_np.shape[0] / self.RATE} / {last_trans_params['b_size']:.1f}s"
+                        f"[DEBUG SKIP] re-transcribe check passed: t_off unchanged ({last_trans_params['t_off']:.1f}), duration={duration:.1f}s < last_dur+{min_re_transcribe_thres}"
                     )
                     time.sleep(min_duration_sleep_time)
                     continue
 
                 if duration < min_duration_to_process:
                     print(
-                        f"Skip {duration}s, sleep {min_duration_sleep_time}s, t_off: {self.timestamp_offset:.1f}s, f_off: {self.frames_offset:.1f}s, b_size: {self.frames_np.shape[0] / self.RATE}"
+                        f"[DEBUG SKIP] duration {duration:.1f}s < min_duration {min_duration_to_process}s"
                     )
                     time.sleep(min_duration_sleep_time)
                     continue
@@ -1157,11 +1205,11 @@ class ServeClientFasterWhisper(ServeClientBase):
                     duration -= trim
                     input_bytes = input_bytes[int(trim * self.RATE) :]
                     print(
-                        f"Trim {trim}s, new druation: {input_bytes.shape[0] / self.RATE}"
+                        f"[DEBUG trim] duration {duration+trim:.1f}s > max_buffer {max_buffer_size}s, trim {trim:.1f}s"
                     )
 
                 print(
-                    f"Transcribe {duration}s, t_off: {self.timestamp_offset:.1f}s, f_off: {self.frames_offset:.1f}s, b_size: {self.frames_np.shape[0] / self.RATE}"
+                    f"[DEBUG TRANSCRIBE] Calling whisper with duration={duration:.1f}s, t_off={self.timestamp_offset:.1f}s, f_off={self.frames_offset:.1f}s, buffer_size={self.frames_np.shape[0] / self.RATE:.1f}s"
                 )
                 # try:
                 if True:
@@ -1174,6 +1222,11 @@ class ServeClientFasterWhisper(ServeClientBase):
                         "duration": duration,
                     }
 
+                    print("[DEBUG result] whisper returned, result_count={}, t_off={:.1f}s".format(
+                        len(result) if result is not None else "None", self.timestamp_offset))
+                    if result is not None:
+                        for i, s in enumerate(result):
+                            print(f"      segment[{i}]: start={s.start:.2f}s, end={s.end:.2f}s, text={s.text[:50] if s.text else 'empty'}")
                     print("Saved last_trans_params", last_trans_params)
                     print(
                         "duration:",
@@ -1188,7 +1241,7 @@ class ServeClientFasterWhisper(ServeClientBase):
                     if result is None or self.language is None:
                         self.timestamp_offset += duration
                         print(
-                            f"No speech detected, skip {duration}s, sleep {empty_result_sleep_time}s"
+                            f"[DEBUG no_speech] No speech detected, advancing timestamp_offset by {duration:.1f}s -> {self.timestamp_offset:.1f}s"
                         )
                         time.sleep(
                             empty_result_sleep_time
