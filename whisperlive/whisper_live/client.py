@@ -247,6 +247,18 @@ class Client:
         except Exception as e:
             print(f"[ERROR] Failed to send reset signal: {e}")
 
+    def send_pause_to_server(self):
+        """
+        Send a pause signal to the server to pause processing.
+        Called when stream disconnects.
+        """
+        try:
+            pause_message = json.dumps({"type": "PAUSE"})
+            self.client_socket.send(pause_message)
+            print("[DEBUG] Sent PAUSE to server")
+        except Exception as e:
+            print(f"[ERROR] Failed to send pause signal: {e}")
+
     def close_websocket(self):
         """
         Close the WebSocket connection and join the WebSocket thread.
@@ -511,7 +523,11 @@ class TranscriptionTeeClient:
                     # 记录第一次断开时间
                     if first_disconnect_time is None:
                         first_disconnect_time = now
+                        reconnect_count = 1
                         print(f"[DEBUG stream] {stream_type} stream disconnected at runtime={time.time()-self.start_time:.1f}s (first time), reconnect_count={reconnect_count}")
+                        # 发送 PAUSE 信号，让服务端暂停处理
+                        for client in self.clients:
+                            client.send_pause_to_server()
 
                     # 90分钟后开始指数退避
                     if now - first_disconnect_time > grace_period:

@@ -243,6 +243,8 @@ class TranscriptionServer:
                 msg = json.loads(frame_data)
                 if msg.get("type") == "RESET_AUDIO_BUFFER":
                     return "RESET"
+                if msg.get("type") == "PAUSE":
+                    return "PAUSE"
             except json.JSONDecodeError:
                 pass
 
@@ -292,6 +294,13 @@ class TranscriptionServer:
         if isinstance(frame_np, str) and frame_np == "RESET":
             logging.info(f"[DEBUG reset] Received RESET signal from client {client.client_uid}, resetting audio buffer state")
             client.reset_audio_buffer()
+            client.paused = False  # 重连后恢复处理
+            return True
+
+        # Handle pause signal
+        if isinstance(frame_np, str) and frame_np == "PAUSE":
+            logging.info(f"[DEBUG pause] Received PAUSE signal from client {client.client_uid}, pausing processing")
+            client.paused = True
             return True
 
         if frame_np is False:
@@ -499,6 +508,7 @@ class ServeClientBase(object):
         self.lock = threading.Lock()
         self.begin_time = time.time()
         self.reset_requested = False  # 标记是否需要重置 last_trans_params
+        self.paused = False  # 标记是否暂停处理（断连时）
 
     def get_runtime(self):
         """
@@ -749,7 +759,7 @@ class ServeClientTensorRT(ServeClientBase):
             self.create_model(model, multilingual)
 
         # threading
-        self.trans_thread = threading.Thread(target=self.speech_to_text)
+        self.trans_thread = threading.Thread(target=self.speech_to_text, daemon=True)
         self.trans_thread.start()
 
         self.websocket.send(
@@ -969,7 +979,7 @@ class ServeClientFasterWhisper(ServeClientBase):
         self.use_vad = use_vad
 
         # threading
-        self.trans_thread = threading.Thread(target=self.speech_to_text)
+        self.trans_thread = threading.Thread(target=self.speech_to_text, daemon=True)
         self.trans_thread.start()
         self.websocket.send(
             json.dumps(
@@ -1162,6 +1172,11 @@ class ServeClientFasterWhisper(ServeClientBase):
                 last_trans_params = {"b_size": 0, "t_off": 0, "f_off": 0, "duration": 0}
                 self.reset_requested = False
                 logging.info("[DEBUG reset_params] last_trans_params reset due to stream reconnect")
+
+            # 检查是否暂停（断流期间）
+            if self.paused:
+                time.sleep(1)
+                continue
 
             if self.frames_np is None:
                 continue
