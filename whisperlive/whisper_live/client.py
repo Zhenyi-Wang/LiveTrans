@@ -541,7 +541,10 @@ class TranscriptionTeeClient:
                         self.stderr_thread.join(timeout=1)
                     self.stop_stderr.clear()
 
-                    process.kill()
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
                     time.sleep(retry_delay)
 
                     # 重新创建 ffmpeg 进程
