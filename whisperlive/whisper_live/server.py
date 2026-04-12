@@ -20,7 +20,7 @@ try:
 except Exception:
     pass
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class ClientManager:

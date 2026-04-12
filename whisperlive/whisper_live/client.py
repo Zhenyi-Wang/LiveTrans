@@ -1,5 +1,6 @@
 import json
 import os
+import select
 import shutil
 import threading
 import time
@@ -514,7 +515,17 @@ class TranscriptionTeeClient:
 
         try:
             while True:
+                # 用 select 轮询，避免阻塞 read() 导致无法响应 Ctrl+C
+                while True:
+                    ready, _, _ = select.select([process.stdout], [], [], 0.5)
+                    if ready:
+                        break
+                print(f"[DEBUG reconnect] Audio data available from ffmpeg (reconnect_count={reconnect_count})")
+                read_start = time.time()
                 in_bytes = process.stdout.read(self.chunk * 2)  # 2 bytes per sample
+                read_elapsed = time.time() - read_start
+                print(f"[DEBUG reconnect] read() returned: bytes={len(in_bytes) if in_bytes else 0}, elapsed={read_elapsed:.1f}s")
+
                 if not in_bytes:
                     # 流断开，尝试重连
                     now = time.time()
@@ -543,12 +554,15 @@ class TranscriptionTeeClient:
 
                     try:
                         process.kill()
+                        print(f"[DEBUG reconnect] Killed old ffmpeg process")
                     except ProcessLookupError:
-                        pass
+                        print(f"[DEBUG reconnect] Old ffmpeg process already dead")
                     time.sleep(retry_delay)
 
                     # 重新创建 ffmpeg 进程
+                    print(f"[DEBUG reconnect] Creating new ffmpeg process (attempt #{reconnect_count})...")
                     process = create_process_func()
+                    print(f"[DEBUG reconnect] New ffmpeg process created, pid={process.pid}")
                     self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
                     self.stderr_thread.start()
                     continue
@@ -569,6 +583,8 @@ class TranscriptionTeeClient:
                 if old_count > 0:
                     print(f"[DEBUG stream] Sent first audio packet after reconnect, bytes={len(in_bytes)}")
 
+        except KeyboardInterrupt:
+            print(f"\n[INFO] Ctrl+C received, stopping {stream_type} stream...")
         except Exception as e:
             print(f"[ERROR]: Failed to connect to {stream_type} stream: {e}")
         finally:
@@ -618,7 +634,9 @@ class TranscriptionTeeClient:
         for line in iter(process.stderr.readline, b""):
             if self.stop_stderr.is_set():
                 break
-            logging.debug(f'[STDERR]: {line.decode()}')
+            decoded = line.decode().strip()
+            if decoded:
+                logging.debug(f'[STDERR]: {decoded}')
 
     def save_chunk(self, n_audio_file):
         """
