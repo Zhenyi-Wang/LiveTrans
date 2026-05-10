@@ -161,7 +161,7 @@ class Client:
         message = json.loads(message)
 
         if self.uid != message.get("uid"):
-            print("[ERROR]: invalid client uid")
+            print(f"[{self.ts()}] [ERROR] invalid client uid")
             return
 
         if "status" in message.keys():
@@ -169,37 +169,39 @@ class Client:
             return
 
         if "message" in message.keys() and message["message"] == "DISCONNECT":
-            print("[INFO]: Server disconnected due to overtime.")
+            print(f"[{self.ts()}] [WARN] Server disconnected due to overtime")
             self.recording = False
 
         if "message" in message.keys() and message["message"] == "SERVER_READY":
             self.last_response_received = time.time()
             self.recording = True
             self.server_backend = message["backend"]
-            print(f"[INFO]: Server Running with backend {self.server_backend}")
+            print(f"[{self.ts()}] [WS] SERVER_READY (backend={self.server_backend}, uid={self.uid})")
             return
 
         if "language" in message.keys():
             self.language = message.get("language")
             lang_prob = message.get("language_prob")
-            print(
-                f"[INFO]: Server detected language {self.language} with probability {lang_prob}"
-            )
+            print(f"[{self.ts()}] [WS] Language detected: {self.language} (prob={lang_prob})")
             return
 
-        print("Received message from server:", message)
         if "segments" in message.keys():
             self.process_segments(message["segments"])
 
     def on_error(self, ws, error):
-        print(f"[ERROR] WebSocket Error: {error}")
+        print(f"[{self.ts()}] [WS] Error: {error}")
         self.server_error = True
         self.error_message = error
 
     def on_close(self, ws, close_status_code, close_msg):
-        print(f"[INFO]: Websocket connection closed: {close_status_code}: {close_msg}")
+        print(f"[{self.ts()}] [WS] Connection closed: code={close_status_code}, msg={close_msg}")
         self.recording = False
         self.waiting = False
+
+    @staticmethod
+    def ts():
+        from datetime import datetime
+        return datetime.now().strftime("%H:%M:%S")
 
     def on_open(self, ws):
         """
@@ -212,7 +214,7 @@ class Client:
             ws (websocket.WebSocketApp): The WebSocket client instance.
 
         """
-        print("[INFO]: Opened connection")
+        print(f"[{self.ts()}] [WS] Connection opened, sending config (uid={self.uid}, lang={self.language}, model={self.model})")
         ws.send(
             json.dumps(
                 {
@@ -383,13 +385,15 @@ class TranscriptionTeeClient:
             sum(source is not None for source in [audio, rtsp_url, hls_url]) <= 1
         ), "You must provide only one selected source"
 
-        print("[INFO]: Waiting for server ready ...")
+        print(f"[{Client.ts()}] [INIT] Waiting for server ready...")
+        attempt = 0
         for client in self.clients:
             deadline = time.time() + 120  # 最多等2分钟
             while not client.recording:
                 if client.waiting or client.server_error:
                     if self._server_command and time.time() < deadline:
-                        # server 可能还在启动，重建连接重试
+                        attempt += 1
+                        print(f"[{Client.ts()}] [INIT] Server not ready (attempt #{attempt}), retrying in 2s...")
                         Client.INSTANCES.pop(client.uid, None)
                         client.close_websocket()
                         p = self._client_params
@@ -403,10 +407,11 @@ class TranscriptionTeeClient:
                             self.client = client
                         time.sleep(2)
                         continue
+                    print(f"[{Client.ts()}] [INIT] Server failed to become ready within 120s, giving up")
                     self.close_all_clients()
                     return
 
-        print("[INFO]: Server Ready!")
+        print(f"[{Client.ts()}] [INIT] Server ready! Starting stream processing...")
         if hls_url is not None:
             self.process_hls_stream(hls_url, save_file)
         elif audio is not None:
@@ -443,6 +448,7 @@ class TranscriptionTeeClient:
             raise Exception("No client params saved for reconnection")
 
         p = self._client_params
+        print(f"[{Client.ts()}] [RECONNECT] Creating new WebSocket client (host={p['host']}:{p['port']}, model={p.get('model')})")
         client = Client(
             p["host"],
             p["port"],
@@ -455,6 +461,7 @@ class TranscriptionTeeClient:
         )
 
         deadline = time.time() + 60
+        last_log = time.time()
         while not client.recording:
             if client.server_error:
                 Client.INSTANCES.pop(client.uid, None)
@@ -463,47 +470,53 @@ class TranscriptionTeeClient:
                 client.close_websocket()
                 Client.INSTANCES.pop(client.uid, None)
                 raise Exception("Reconnection timeout: server not ready within 60s")
+            if time.time() - last_log > 10:
+                elapsed = time.time() - (deadline - 60)
+                print(f"[{Client.ts()}] [RECONNECT] Waiting for SERVER_READY... ({elapsed:.0f}s/60s)")
+                last_log = time.time()
             time.sleep(0.1)
 
         self.clients = [client]
-
         if hasattr(self, 'client'):
             self.client = client
 
-        print(f"[INFO]: WebSocket reconnected, client uid={client.uid}")
+        print(f"[{Client.ts()}] [RECONNECT] WebSocket connected (uid={client.uid})")
 
     def start_server(self):
         """启动 server 子进程。仅在 server_command 已配置且 server 未运行时启动。"""
         if not self._server_command:
             return
         if self._server_process and self._server_process.poll() is None:
+            print(f"[{Client.ts()}] [SERVER] Already running (pid={self._server_process.pid})")
             return
-        print(f"[INFO] Starting server: {' '.join(self._server_command)}")
+        print(f"[{Client.ts()}] [SERVER] Starting: {' '.join(self._server_command)}")
         self._server_process = subprocess.Popen(
             self._server_command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        # 等待一小段时间确认进程没有立即退出（如端口冲突）
         time.sleep(1)
         if self._server_process.poll() is not None:
             raise Exception(f"Server process exited immediately with code {self._server_process.returncode}")
+        print(f"[{Client.ts()}] [SERVER] Started successfully (pid={self._server_process.pid})")
 
     def stop_server(self):
         """停止 server 子进程。"""
         if not self._server_process:
             return
         if self._server_process.poll() is not None:
+            print(f"[{Client.ts()}] [SERVER] Already stopped (exit_code={self._server_process.returncode})")
             self._server_process = None
             return
-        print(f"[INFO] Stopping server (pid={self._server_process.pid})...")
+        print(f"[{Client.ts()}] [SERVER] Stopping (pid={self._server_process.pid})...")
         self._server_process.terminate()
         try:
             self._server_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            print(f"[{Client.ts()}] [SERVER] terminate timeout, killing...")
             self._server_process.kill()
             self._server_process.wait(timeout=3)
-        print("[INFO] Server stopped")
+        print(f"[{Client.ts()}] [SERVER] Stopped (exit_code={self._server_process.returncode})")
         self._server_process = None
 
     def multicast_packet(self, packet, unconditional=False):
@@ -604,7 +617,7 @@ class TranscriptionTeeClient:
 
 
     def handle_ffmpeg_process(self, process, stream_type, create_process_func):
-        print(f"[INFO]: Connecting to {stream_type} stream...")
+        print(f"[{Client.ts()}] [STREAM] Connecting to {stream_type} stream (ffmpeg pid={process.pid})...")
         self.stop_stderr.clear()
         self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
         self.stderr_thread.start()
@@ -616,6 +629,8 @@ class TranscriptionTeeClient:
         server_idle_timeout = grace_period  # 断流90分钟后关闭server，与指数退避同步
         server_stopped = False  # 标记server是否已被关闭
         reconnect_count = 0  # 重连次数计数
+        prev_retry_delay = retry_delay  # 用于检测退避变化
+        audio_packet_count = 0  # 已发送的音频包计数
 
         try:
             while True:
@@ -635,15 +650,14 @@ class TranscriptionTeeClient:
                     if first_disconnect_time is None:
                         first_disconnect_time = now
                         reconnect_count = 1
-                        print(f"[WARN] {stream_type} stream disconnected (first time), reconnect_count={reconnect_count}")
+                        print(f"[{Client.ts()}] [STREAM] {stream_type} stream disconnected (first time)")
                         # 断开 WebSocket 连接
                         if self.clients:
-                            print(f"[INFO] Disconnecting WebSocket due to stream loss...")
                             self.disconnect_clients()
 
                     # 断流超过阈值，关闭server释放GPU
                     if not server_stopped and now - first_disconnect_time > server_idle_timeout:
-                        print(f"[INFO] Stream offline for {now - first_disconnect_time:.0f}s, stopping server to free GPU...")
+                        print(f"[{Client.ts()}] [STREAM] Offline for {now - first_disconnect_time:.0f}s > {server_idle_timeout}s threshold, stopping server")
                         self.stop_server()
                         server_stopped = True
 
@@ -651,7 +665,12 @@ class TranscriptionTeeClient:
                     if now - first_disconnect_time > grace_period:
                         retry_delay = min(retry_delay * 2, max_delay)
 
-                    print(f"[WARN] {stream_type} stream disconnected, retrying in {retry_delay}s... (reconnect #{reconnect_count}, disconnected_since={now-first_disconnect_time:.1f}s)")
+                    if retry_delay != prev_retry_delay:
+                        print(f"[{Client.ts()}] [STREAM] Retry delay changed: {prev_retry_delay}s → {retry_delay}s")
+                        prev_retry_delay = retry_delay
+
+                    if reconnect_count % 100 == 1 or reconnect_count <= 3:
+                        print(f"[{Client.ts()}] [STREAM] Reconnect #{reconnect_count}, retry in {retry_delay}s (offline {now-first_disconnect_time:.0f}s, server={'stopped' if server_stopped else 'running'})")
 
                     # 停止旧的 stderr 线程
                     self.stop_stderr.set()
@@ -674,27 +693,34 @@ class TranscriptionTeeClient:
                 # 流有数据
                 if reconnect_count > 0:
                     # 流刚恢复，重建 WebSocket 连接
-                    print(f"[INFO] {stream_type} stream reconnected after {reconnect_count} retries, rebuilding WebSocket...")
+                    print(f"[{Client.ts()}] [STREAM] {stream_type} stream recovered after {reconnect_count} retries, reconnecting...")
                     retry_delay = 2
+                    prev_retry_delay = retry_delay
                     first_disconnect_time = None
                     reconnect_count = 0
                     if server_stopped:
                         self.start_server()
                         server_stopped = False
                     self.reconnect_clients()
-                    print(f"[INFO] WebSocket ready, resuming audio transmission")
+                    print(f"[{Client.ts()}] [STREAM] Fully reconnected, resuming audio transmission")
 
                 audio_array = self.bytes_to_float_array(in_bytes)
                 self.multicast_packet(audio_array.tobytes())
+                audio_packet_count += 1
+                if audio_packet_count == 1:
+                    print(f"[{Client.ts()}] [STREAM] First audio packet sent ({len(in_bytes)} bytes)")
+                elif audio_packet_count % 1000 == 0:
+                    print(f"[{Client.ts()}] [STREAM] Audio packets sent: {audio_packet_count}")
 
         except KeyboardInterrupt:
-            print(f"\n[INFO] Ctrl+C received, stopping {stream_type} stream...")
+            print(f"\n[{Client.ts()}] [STREAM] Ctrl+C received")
         except Exception as e:
-            print(f"[ERROR]: Failed to connect to {stream_type} stream: {e}")
+            print(f"[{Client.ts()}] [STREAM] Fatal error: {e}")
         finally:
             self.stop_stderr.set()
             if self.stderr_thread:
                 self.stderr_thread.join(timeout=2)
+            print(f"[{Client.ts()}] [STREAM] Cleaning up (audio_packets={audio_packet_count}, clients={len(self.clients)})")
             if self.clients:
                 self.write_all_clients_srt()
                 self.close_all_clients()
@@ -705,7 +731,7 @@ class TranscriptionTeeClient:
                 except ProcessLookupError:
                     pass
 
-        print(f"[INFO]: {stream_type} stream processing finished.")
+        print(f"[{Client.ts()}] [STREAM] {stream_type} processing finished (total_packets={audio_packet_count})")
 
     def get_rtsp_ffmpeg_process(self, rtsp_url):
         return (
@@ -947,12 +973,16 @@ class TranscriptionClient(TranscriptionTeeClient):
         # 如果配置了 server_command，先启动 server
         self._server_command = server_command
         if server_command:
-            print(f"[INFO] Starting server: {' '.join(server_command)}")
             self._server_process = subprocess.Popen(
                 server_command,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            time.sleep(1)
+            if self._server_process.poll() is not None:
+                print(f"[{Client.ts()}] [SERVER] FAILED to start (exit_code={self._server_process.returncode})")
+            else:
+                print(f"[{Client.ts()}] [SERVER] Started (pid={self._server_process.pid})")
 
         self.client = Client(
             host,
