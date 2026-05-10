@@ -1,2 +1,5 @@
 models
 **/__pycache__
+.claude/
+*.srt
+REFACTOR_REPORT.md
