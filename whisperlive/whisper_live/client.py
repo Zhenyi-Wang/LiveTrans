@@ -2,6 +2,7 @@ import json
 import os
 import select
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -337,6 +338,8 @@ class TranscriptionTeeClient:
     ):
         self.clients = clients
         self._client_params = {}
+        self._server_command = None
+        self._server_process = None
         if not self.clients:
             raise Exception("At least one client is required.")
         self.start_time = time.time()  # 追踪客户端开始运行时间
@@ -453,6 +456,36 @@ class TranscriptionTeeClient:
 
         print(f"[INFO]: WebSocket reconnected, client uid={client.uid}")
 
+    def start_server(self):
+        """启动 server 子进程。仅在 server_command 已配置且 server 未运行时启动。"""
+        if not self._server_command:
+            return
+        if self._server_process and self._server_process.poll() is None:
+            return
+        print(f"[INFO] Starting server: {' '.join(self._server_command)}")
+        self._server_process = subprocess.Popen(
+            self._server_command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def stop_server(self):
+        """停止 server 子进程。"""
+        if not self._server_process:
+            return
+        if self._server_process.poll() is not None:
+            self._server_process = None
+            return
+        print(f"[INFO] Stopping server (pid={self._server_process.pid})...")
+        self._server_process.terminate()
+        try:
+            self._server_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self._server_process.kill()
+            self._server_process.wait(timeout=3)
+        print("[INFO] Server stopped")
+        self._server_process = None
+
     def multicast_packet(self, packet, unconditional=False):
         """
         Sends an identical packet via all clients.
@@ -560,6 +593,8 @@ class TranscriptionTeeClient:
         max_delay = 60   # 最大延迟
         first_disconnect_time = None  # 第一次断开的时间
         grace_period = 5400  # 90分钟内保持2秒间隔
+        server_idle_timeout = 300  # 断流5分钟后关闭server，释放GPU
+        server_stopped = False  # 标记server是否已被关闭
         reconnect_count = 0  # 重连次数计数
 
         try:
@@ -585,6 +620,12 @@ class TranscriptionTeeClient:
                         if self.clients:
                             print(f"[INFO] Disconnecting WebSocket due to stream loss...")
                             self.disconnect_clients()
+
+                    # 断流超过阈值，关闭server释放GPU
+                    if not server_stopped and now - first_disconnect_time > server_idle_timeout:
+                        print(f"[INFO] Stream offline for {now - first_disconnect_time:.0f}s, stopping server to free GPU...")
+                        self.stop_server()
+                        server_stopped = True
 
                     # 90分钟后开始指数退避
                     if now - first_disconnect_time > grace_period:
@@ -617,6 +658,9 @@ class TranscriptionTeeClient:
                     retry_delay = 2
                     first_disconnect_time = None
                     reconnect_count = 0
+                    if server_stopped:
+                        self.start_server()
+                        server_stopped = False
                     self.reconnect_clients()
                     print(f"[INFO] WebSocket ready, resuming audio transmission")
 
@@ -634,6 +678,7 @@ class TranscriptionTeeClient:
             if self.clients:
                 self.write_all_clients_srt()
                 self.close_all_clients()
+            self.stop_server()
             if process:
                 try:
                     process.kill()
@@ -877,7 +922,18 @@ class TranscriptionClient(TranscriptionTeeClient):
         output_recording_filename="./output_recording.wav",
         output_transcription_path="./output.srt",
         dispatch_api=None,
+        server_command=None,
     ):
+        # 如果配置了 server_command，先启动 server
+        self._server_command = server_command
+        if server_command:
+            print(f"[INFO] Starting server: {' '.join(server_command)}")
+            self._server_process = subprocess.Popen(
+                server_command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
         self.client = Client(
             host,
             port,
