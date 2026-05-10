@@ -1,3 +1,5 @@
+import os
+
 from whisper_live.client import TranscriptionClient
 
 client = TranscriptionClient(

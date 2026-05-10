@@ -1,10 +1,17 @@
 import subprocess
+import threading
 import time
 import signal
 import sys
 from datetime import datetime
 
 exit_requested = False
+
+_ALSA_NOISE = ("ALSA lib", "Cannot get card", "Cannot open device",
+               "Unknown PCM", "Invalid card", "Invalid field",
+               "pcm_oss", "pcm_usb", "snd_pcm", "snd_func",
+               "snd_config", "_snd_pcm", "Evaluate error",
+               "BuildDeviceList", "Assertion")
 
 
 def ts():
@@ -21,12 +28,27 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
+def _stderr_reader(proc):
+    """后台线程：过滤 client 子进程的 ALSA 噪音。"""
+    try:
+        for line in proc.stderr:
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if any(text.startswith(p) or text.startswith(f"python: {p}") for p in _ALSA_NOISE):
+                continue
+            sys.stderr.write(text + "\n")
+            sys.stderr.flush()
+    except Exception:
+        pass
+
+
 def run_client():
     """运行 client 进程，返回 (process, returncode)。"""
     print(f"[{ts()}] [MAIN] Starting client process")
     process = subprocess.Popen(
         [sys.executable, "whisperlive/run_client.py"],
+        stderr=subprocess.PIPE,
     )
+    threading.Thread(target=_stderr_reader, args=(process,), daemon=True).start()
     return process
 
 

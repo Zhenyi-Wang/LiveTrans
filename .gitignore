@@ -3,3 +3,4 @@ models
 .claude/
 *.srt
 REFACTOR_REPORT.md
+server.log

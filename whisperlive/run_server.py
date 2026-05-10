@@ -1,7 +1,9 @@
 import argparse
+import logging
 import os
 
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
+logging.getLogger("websockets").setLevel(logging.WARNING)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
