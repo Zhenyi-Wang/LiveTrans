@@ -385,8 +385,24 @@ class TranscriptionTeeClient:
 
         print("[INFO]: Waiting for server ready ...")
         for client in self.clients:
+            deadline = time.time() + 120  # 最多等2分钟
             while not client.recording:
                 if client.waiting or client.server_error:
+                    if self._server_command and time.time() < deadline:
+                        # server 可能还在启动，重建连接重试
+                        Client.INSTANCES.pop(client.uid, None)
+                        client.close_websocket()
+                        p = self._client_params
+                        client = Client(
+                            p["host"], p["port"], p.get("lang"), p.get("translate", False),
+                            p.get("model", "small"), srt_file_path=p.get("srt_file_path", "output.srt"),
+                            use_vad=p.get("use_vad", True), dispatch_api=p.get("dispatch_api"),
+                        )
+                        self.clients = [client]
+                        if hasattr(self, 'client'):
+                            self.client = client
+                        time.sleep(2)
+                        continue
                     self.close_all_clients()
                     return
 
