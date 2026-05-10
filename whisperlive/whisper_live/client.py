@@ -593,7 +593,7 @@ class TranscriptionTeeClient:
         max_delay = 60   # 最大延迟
         first_disconnect_time = None  # 第一次断开的时间
         grace_period = 5400  # 90分钟内保持2秒间隔
-        server_idle_timeout = 300  # 断流5分钟后关闭server，释放GPU
+        server_idle_timeout = grace_period  # 断流90分钟后关闭server，与指数退避同步
         server_stopped = False  # 标记server是否已被关闭
         reconnect_count = 0  # 重连次数计数
 
