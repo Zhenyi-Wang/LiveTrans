@@ -62,6 +62,8 @@ class TestClientCallbacks(BaseTestCase):
             }
         )
         self.client.on_message(self.mock_ws_app, message)
+        self.assertTrue(self.client.recording)
+        self.assertEqual(self.client.server_backend, "faster_whisper")
 
         message = json.dumps({
             "uid": self.client.uid,
@@ -73,9 +75,8 @@ class TestClientCallbacks(BaseTestCase):
         })
         self.client.on_message(self.mock_ws_app, message)
 
-        # Assert that the transcript was updated correctly
-        self.assertEqual(len(self.client.transcript), 2)
-        self.assertEqual(self.client.transcript[1]['text'], "Test transcript 2")
+        # process_segments now sends via dispatch_api instead of appending to transcript
+        self.assertEqual(len(self.client.transcript), 0)
 
     def test_on_close(self):
         close_status_code = 1000
@@ -96,7 +97,7 @@ class TestClientCallbacks(BaseTestCase):
 
 class TestAudioResampling(unittest.TestCase):
     def test_resample_audio(self):
-        original_audio = "assets/jfk.flac"
+        original_audio = os.path.join(os.path.dirname(__file__), "..", "assets", "jfk.flac")
         expected_sr = 16000
         resampled_audio = resample(original_audio, expected_sr)
 
@@ -154,3 +155,45 @@ class TestTee(BaseTestCase):
         self.tee.write_all_clients_srt()
         self.assertTrue(Path("transcript.srt").is_file())
         self.assertTrue(Path("translation.srt").is_file())
+
+    def test_disconnect_clients_clears_instances(self):
+        uid1 = self.client2.uid
+        uid2 = self.client3.uid
+        self.assertIn(uid1, Client.INSTANCES)
+        self.assertIn(uid2, Client.INSTANCES)
+        self.tee.disconnect_clients()
+        self.assertEqual(self.tee.clients, [])
+        self.assertNotIn(uid1, Client.INSTANCES)
+        self.assertNotIn(uid2, Client.INSTANCES)
+
+    @patch('whisper_live.client.websocket.WebSocketApp')
+    @patch('whisper_live.client.pyaudio.PyAudio')
+    def test_reconnect_clients_creates_new_client(self, mock_pyaudio, mock_ws):
+        mock_pyaudio_inst = MagicMock()
+        mock_pyaudio.return_value = mock_pyaudio_inst
+        mock_stream = MagicMock()
+        mock_pyaudio_inst.open.return_value = mock_stream
+
+        self.tee.disconnect_clients()
+        self.assertEqual(self.tee.clients, [])
+
+        self.tee._client_params = {
+            "host": "localhost",
+            "port": 9090,
+            "lang": "zh",
+            "translate": False,
+            "model": "small",
+            "use_vad": True,
+            "srt_file_path": "output.srt",
+            "dispatch_api": None,
+        }
+
+        def mock_client_init(self, *a, **kw):
+            self.recording = True
+            self.server_error = False
+            self.uid = "test-reconnect-uid"
+
+        with patch.object(Client, '__init__', mock_client_init):
+            self.tee.reconnect_clients()
+            self.assertEqual(len(self.tee.clients), 1)
+            self.assertEqual(self.tee.clients[0].uid, "test-reconnect-uid")
