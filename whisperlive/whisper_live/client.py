@@ -50,6 +50,7 @@ class Client:
             translate (bool, optional): Specifies if the task is translation. Default is False.
         """
         self.recording = False
+        self.server_backend = None
         self.task = "transcribe"
         self.uid = str(uuid.uuid4())
         self.waiting = False
@@ -236,6 +237,7 @@ class Client:
         except Exception as e:
             print(e)
 
+    # DEPRECATED: 不再使用。断流时改为断开 WebSocket。
     def send_reset_to_server(self):
         """
         Send a reset signal to the server to clear audio buffer state.
@@ -248,6 +250,7 @@ class Client:
         except Exception as e:
             print(f"[ERROR] Failed to send reset signal: {e}")
 
+    # DEPRECATED: 不再使用。流恢复时改为重建 WebSocket。
     def send_pause_to_server(self):
         """
         Send a pause signal to the server to pause processing.
@@ -274,7 +277,9 @@ class Client:
             print("[ERROR]: Error closing WebSocket:", e)
 
         try:
-            self.ws_thread.join()
+            self.ws_thread.join(timeout=5)
+            if self.ws_thread.is_alive():
+                print("[WARN]: WebSocket thread did not exit within 5s timeout")
         except Exception as e:
             print("[ERROR:] Error joining WebSocket thread:", e)
 
@@ -331,6 +336,7 @@ class TranscriptionTeeClient:
         output_recording_filename="./output_recording.wav",
     ):
         self.clients = clients
+        self._client_params = {}
         if not self.clients:
             raise Exception("At least one client is required.")
         self.start_time = time.time()  # 追踪客户端开始运行时间
@@ -403,6 +409,49 @@ class TranscriptionTeeClient:
         """Writes out .srt files for all clients."""
         for client in self.clients:
             client.write_srt_file(client.srt_file_path)
+
+    def disconnect_clients(self):
+        """断流时断开所有 WebSocket 连接，清理 Client 实例。"""
+        self.write_all_clients_srt()
+        for client in self.clients:
+            Client.INSTANCES.pop(client.uid, None)
+        self.close_all_clients()
+        self.clients = []
+
+    def reconnect_clients(self):
+        """流恢复时重建 WebSocket 连接。"""
+        if not self._client_params:
+            raise Exception("No client params saved for reconnection")
+
+        p = self._client_params
+        client = Client(
+            p["host"],
+            p["port"],
+            p.get("lang"),
+            p.get("translate", False),
+            p.get("model", "small"),
+            srt_file_path=p.get("srt_file_path", "output.srt"),
+            use_vad=p.get("use_vad", True),
+            dispatch_api=p.get("dispatch_api"),
+        )
+
+        deadline = time.time() + 30
+        while not client.recording:
+            if client.server_error:
+                Client.INSTANCES.pop(client.uid, None)
+                raise Exception("Server error during reconnection")
+            if time.time() > deadline:
+                client.close_websocket()
+                Client.INSTANCES.pop(client.uid, None)
+                raise Exception("Reconnection timeout: server not ready within 30s")
+            time.sleep(0.1)
+
+        self.clients = [client]
+
+        if hasattr(self, 'client'):
+            self.client = client
+
+        print(f"[INFO]: WebSocket reconnected, client uid={client.uid}")
 
     def multicast_packet(self, packet, unconditional=False):
         """
@@ -520,11 +569,7 @@ class TranscriptionTeeClient:
                     ready, _, _ = select.select([process.stdout], [], [], 0.5)
                     if ready:
                         break
-                print(f"[DEBUG reconnect] Audio data available from ffmpeg (reconnect_count={reconnect_count})")
-                read_start = time.time()
                 in_bytes = process.stdout.read(self.chunk * 2)  # 2 bytes per sample
-                read_elapsed = time.time() - read_start
-                print(f"[DEBUG reconnect] read() returned: bytes={len(in_bytes) if in_bytes else 0}, elapsed={read_elapsed:.1f}s")
 
                 if not in_bytes:
                     # 流断开，尝试重连
@@ -535,10 +580,11 @@ class TranscriptionTeeClient:
                     if first_disconnect_time is None:
                         first_disconnect_time = now
                         reconnect_count = 1
-                        print(f"[DEBUG stream] {stream_type} stream disconnected at runtime={time.time()-self.start_time:.1f}s (first time), reconnect_count={reconnect_count}")
-                        # 发送 PAUSE 信号，让服务端暂停处理
-                        for client in self.clients:
-                            client.send_pause_to_server()
+                        print(f"[WARN] {stream_type} stream disconnected (first time), reconnect_count={reconnect_count}")
+                        # 断开 WebSocket 连接
+                        if self.clients:
+                            print(f"[INFO] Disconnecting WebSocket due to stream loss...")
+                            self.disconnect_clients()
 
                     # 90分钟后开始指数退避
                     if now - first_disconnect_time > grace_period:
@@ -554,34 +600,28 @@ class TranscriptionTeeClient:
 
                     try:
                         process.kill()
-                        print(f"[DEBUG reconnect] Killed old ffmpeg process")
                     except ProcessLookupError:
-                        print(f"[DEBUG reconnect] Old ffmpeg process already dead")
+                        pass
                     time.sleep(retry_delay)
 
                     # 重新创建 ffmpeg 进程
-                    print(f"[DEBUG reconnect] Creating new ffmpeg process (attempt #{reconnect_count})...")
                     process = create_process_func()
-                    print(f"[DEBUG reconnect] New ffmpeg process created, pid={process.pid}")
                     self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
                     self.stderr_thread.start()
                     continue
 
-                # 重连成功，重置状态
+                # 流有数据
                 if reconnect_count > 0:
-                    print(f"[DEBUG stream] {stream_type} stream reconnected after {reconnect_count} retries, audio resuming...")
-                    # 通知服务端重置音频缓冲区状态
-                    for client in self.clients:
-                        client.send_reset_to_server()
-                    time.sleep(0.5)  # 等待服务端处理重置请求
-                retry_delay = 2
-                first_disconnect_time = None
-                old_count = reconnect_count
-                reconnect_count = 0
+                    # 流刚恢复，重建 WebSocket 连接
+                    print(f"[INFO] {stream_type} stream reconnected after {reconnect_count} retries, rebuilding WebSocket...")
+                    retry_delay = 2
+                    first_disconnect_time = None
+                    reconnect_count = 0
+                    self.reconnect_clients()
+                    print(f"[INFO] WebSocket ready, resuming audio transmission")
+
                 audio_array = self.bytes_to_float_array(in_bytes)
                 self.multicast_packet(audio_array.tobytes())
-                if old_count > 0:
-                    print(f"[DEBUG stream] Sent first audio packet after reconnect, bytes={len(in_bytes)}")
 
         except KeyboardInterrupt:
             print(f"\n[INFO] Ctrl+C received, stopping {stream_type} stream...")
@@ -589,10 +629,16 @@ class TranscriptionTeeClient:
             print(f"[ERROR]: Failed to connect to {stream_type} stream: {e}")
         finally:
             self.stop_stderr.set()
-            self.close_all_clients()
-            self.write_all_clients_srt()
+            if self.stderr_thread:
+                self.stderr_thread.join(timeout=2)
+            if self.clients:
+                self.write_all_clients_srt()
+                self.close_all_clients()
             if process:
-                process.kill()
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
 
         print(f"[INFO]: {stream_type} stream processing finished.")
 
@@ -856,3 +902,13 @@ class TranscriptionClient(TranscriptionTeeClient):
             save_output_recording=save_output_recording,
             output_recording_filename=output_recording_filename,
         )
+        self._client_params = {
+            "host": host,
+            "port": port,
+            "lang": lang,
+            "translate": translate,
+            "model": model,
+            "use_vad": use_vad,
+            "srt_file_path": output_transcription_path,
+            "dispatch_api": dispatch_api,
+        }
