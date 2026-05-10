@@ -2,6 +2,7 @@ import json
 import os
 import select
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -405,7 +406,7 @@ class TranscriptionTeeClient:
                         self.clients = [client]
                         if hasattr(self, 'client'):
                             self.client = client
-                        time.sleep(2)
+                        time.sleep(5)
                         continue
                     print(f"[{Client.ts()}] [INIT] Server failed to become ready within 120s, giving up")
                     self.close_all_clients()
@@ -482,6 +483,94 @@ class TranscriptionTeeClient:
 
         print(f"[{Client.ts()}] [RECONNECT] WebSocket connected (uid={client.uid})")
 
+    def _kill_port_users(self, port):
+        """杀掉占用指定端口的进程。"""
+        try:
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                s.connect(("127.0.0.1", port))
+                s.close()
+            port_in_use = True
+        except (ConnectionRefusedError, OSError):
+            port_in_use = False
+
+        if not port_in_use:
+            return
+
+        try:
+            result = subprocess.run(
+                ["lsof", "-t", "-i", f":{port}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            pids = result.stdout.strip().split("\n")
+            for pid in pids:
+                pid = pid.strip()
+                if not pid:
+                    continue
+                print(f"[{Client.ts()}] [SERVER] Killing stale process on port {port} (pid={pid})")
+                os.kill(int(pid), signal.SIGTERM)
+            if pids and pids[0]:
+                time.sleep(1)
+        except Exception as e:
+            print(f"[{Client.ts()}] [SERVER] Failed to check port {port}: {e}")
+
+    def _wait_for_port(self, port, timeout=120):
+        """等待端口开始监听。"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._server_process and self._server_process.poll() is not None:
+                raise Exception(f"Server process exited with code {self._server_process.returncode}")
+            try:
+                result = subprocess.run(
+                    ["ss", "-tlnp"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if f":{port}" in result.stdout and "LISTEN" in result.stdout:
+                    return
+            except Exception:
+                pass
+            time.sleep(2)
+        raise Exception(f"Server did not start listening on port {port} within {timeout}s")
+
+    _LOG_NOISE_PATTERNS = (
+        "ALSA lib", "Cannot get card", "Cannot open device",
+        "Unknown PCM", "Invalid card", "Invalid field",
+        "pcm_oss", "pcm_usb", "snd_pcm", "snd_func",
+        "snd_config", "_snd_pcm", "Evaluate error",
+        "DEBUG:websockets", "ERROR:websockets",
+        "[DEBUG add_frames]", "[DEBUG process_loop]",
+        "[DEBUG SKIP]", "[DEBUG TRANSCRIBE]",
+        "------------------------------",
+        "Runtime:", "[DEBUG result]",
+        "Saved last_trans_params", "Good, sleep",
+        "duration:", "DEBUG:faster_whisper",
+    )
+    _NOISE_BLOCK_TRIGGERS = ("did not receive a valid HTTP request", "connection closed while reading HTTP request line")
+
+    def _server_log_reader(self, proc, log_file):
+        """后台线程：读取 server 输出，过滤噪音后 tee 到控制台和日志文件。"""
+        in_noise_block = False
+        try:
+            for line in proc.stdout:
+                line_str = line.decode("utf-8", errors="replace").rstrip()
+                log_file.write(line_str + "\n")
+                log_file.flush()
+
+                # 检测并跳过已知的噪音 traceback 块
+                if any(t in line_str for t in self._NOISE_BLOCK_TRIGGERS):
+                    in_noise_block = True
+                if in_noise_block:
+                    if line_str == "" or line_str.startswith("  ") or line_str.startswith("Traceback") or line_str.startswith("The above"):
+                        continue
+                    in_noise_block = False
+
+                if any(line_str.startswith(p) for p in self._LOG_NOISE_PATTERNS):
+                    continue
+                print(f"[SERVER] {line_str}")
+        except Exception:
+            pass
+
     def start_server(self):
         """启动 server 子进程。仅在 server_command 已配置且 server 未运行时启动。"""
         if not self._server_command:
@@ -489,16 +578,35 @@ class TranscriptionTeeClient:
         if self._server_process and self._server_process.poll() is None:
             print(f"[{Client.ts()}] [SERVER] Already running (pid={self._server_process.pid})")
             return
+
+        # 提取端口号并清理残留进程
+        port = 9090
+        for i, arg in enumerate(self._server_command):
+            if arg == "--port" and i + 1 < len(self._server_command):
+                try:
+                    port = int(self._server_command[i + 1])
+                except ValueError:
+                    pass
+        self._kill_port_users(port)
+
+        server_log = open("server.log", "a")
         print(f"[{Client.ts()}] [SERVER] Starting: {' '.join(self._server_command)}")
+        server_env = os.environ.copy()
+        server_env["PULSE_SERVER"] = ""  # 抑制 ALSA 警告
+        server_env["WEBLOG_LEVEL"] = "INFO"  # websockets 日志级别
         self._server_process = subprocess.Popen(
             self._server_command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=server_env,
         )
-        time.sleep(1)
-        if self._server_process.poll() is not None:
-            raise Exception(f"Server process exited immediately with code {self._server_process.returncode}")
-        print(f"[{Client.ts()}] [SERVER] Started successfully (pid={self._server_process.pid})")
+        threading.Thread(
+            target=self._server_log_reader,
+            args=(self._server_process, server_log),
+            daemon=True,
+        ).start()
+        self._wait_for_port(port)
+        print(f"[{Client.ts()}] [SERVER] Started and listening on port {port} (pid={self._server_process.pid})")
 
     def stop_server(self):
         """停止 server 子进程。"""
@@ -972,17 +1080,9 @@ class TranscriptionClient(TranscriptionTeeClient):
     ):
         # 如果配置了 server_command，先启动 server
         self._server_command = server_command
+        self._server_process = None
         if server_command:
-            self._server_process = subprocess.Popen(
-                server_command,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            time.sleep(1)
-            if self._server_process.poll() is not None:
-                print(f"[{Client.ts()}] [SERVER] FAILED to start (exit_code={self._server_process.returncode})")
-            else:
-                print(f"[{Client.ts()}] [SERVER] Started (pid={self._server_process.pid})")
+            self.start_server()
 
         self.client = Client(
             host,
