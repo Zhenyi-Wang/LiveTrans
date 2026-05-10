@@ -1,41 +1,40 @@
 import subprocess
 import time
 import signal
+import sys
 
-# 全局变量，用于存储PID
-pids = []
-
-
-def run_script(script_name):
-    # 运行脚本并获取其 PID
-    process = subprocess.Popen(["python", script_name])
-    pid = process.pid
-    print(f"Started {script_name} with PID {pid}")
-    pids.append(pid)
-
-
-def kill_processes():
-    for pid in pids:
-        try:
-            import psutil
-            process = psutil.Process(pid)
-            process.terminate()
-            print(f"Terminated process with PID {pid}")
-        except Exception:
-            pass
-    pids.clear()
+exit_requested = False
 
 
 def signal_handler(signum, frame):
-    print("Received SIGINT, terminating subprocess...")
-    kill_processes()
-    print("Exiting...")
-    exit(1)
+    global exit_requested
+    exit_requested = True
+    print("Received SIGINT, waiting for client to exit...")
 
 
 signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+
+def run_client():
+    """运行 client 进程，返回退出码。"""
+    process = subprocess.Popen(
+        [sys.executable, "whisperlive/run_client.py"],
+    )
+    return process
 
 
 if __name__ == "__main__":
-    # client 会自动管理 server 的生命周期
-    run_script("whisperlive/run_client.py")
+    max_restart_delay = 60  # 最大重启等待间隔
+    restart_delay = 5        # 初始重启等待间隔
+
+    while not exit_requested:
+        process = run_client()
+        returncode = process.wait()
+
+        if exit_requested:
+            break
+
+        print(f"[WARN] Client exited with code {returncode}, restarting in {restart_delay}s...")
+        time.sleep(restart_delay)
+        restart_delay = min(restart_delay * 2, max_restart_delay)

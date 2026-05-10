@@ -454,7 +454,7 @@ class TranscriptionTeeClient:
             dispatch_api=p.get("dispatch_api"),
         )
 
-        deadline = time.time() + 30
+        deadline = time.time() + 60
         while not client.recording:
             if client.server_error:
                 Client.INSTANCES.pop(client.uid, None)
@@ -462,7 +462,7 @@ class TranscriptionTeeClient:
             if time.time() > deadline:
                 client.close_websocket()
                 Client.INSTANCES.pop(client.uid, None)
-                raise Exception("Reconnection timeout: server not ready within 30s")
+                raise Exception("Reconnection timeout: server not ready within 60s")
             time.sleep(0.1)
 
         self.clients = [client]
@@ -484,6 +484,10 @@ class TranscriptionTeeClient:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        # 等待一小段时间确认进程没有立即退出（如端口冲突）
+        time.sleep(1)
+        if self._server_process.poll() is not None:
+            raise Exception(f"Server process exited immediately with code {self._server_process.returncode}")
 
     def stop_server(self):
         """停止 server 子进程。"""
