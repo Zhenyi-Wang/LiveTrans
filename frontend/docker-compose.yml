@@ -13,7 +13,7 @@ services:
     environment:
       - PORT=8081
       - NITRO_PORT=8081
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
-      - OPENAI_MODEL=${OPENAI_MODEL}
+      - NUXT_OPENAI_API_KEY=${OPENAI_API_KEY}
+      - NUXT_OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - NUXT_OPENAI_MODEL=${OPENAI_MODEL}
     command: node server/index.mjs
