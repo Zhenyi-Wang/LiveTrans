@@ -23,8 +23,12 @@ async function previewCurrent(seg: Segment, contextSegs: Segment[]) {
     seg.en_text = cached
     return
   }
+  // 队列已积压:本条必然过时,直接放弃(LLM稍慢于current变化频率时防无界积压)
+  if (previewWaiters.length >= 2) return
   if (previewActive) {
     await new Promise<void>(resolve => previewWaiters.push(resolve))
+    // 排到执行:current已切句则本条过时,放弃
+    if (String(getCurrentSegment().start) !== String(seg.start)) return
   }
   previewActive = true
   try {
@@ -60,13 +64,13 @@ export default defineEventHandler(async event => {
         let contextSegs = saveCurrentSegment(data.current)
 
         // 异步预翻不阻塞响应(dispatch消费速度取决于POST响应时间);
-        // 排队超时放弃;新鲜度按句子start判断:同句滚动演进可广播(校验从宽,
-        // 避免文本高频变化导致英文预览从不更新),跨句才拦
+        // 排队超时放弃;超时/失败未产出翻译(en_text空)不广播;
+        // 新鲜度按句子start判断:同句滚动演进可广播,跨句才拦
         void Promise.race([
           previewCurrent(seg, contextSegs),
-          new Promise(r => setTimeout(r, 8000)),
+          new Promise(r => setTimeout(r, 12000)),
         ]).then(() => {
-          if (String(getCurrentSegment().start) === String(seg.start)) {
+          if (seg.en_text && String(getCurrentSegment().start) === String(seg.start)) {
             broadcast({
               current_en: seg,
             })

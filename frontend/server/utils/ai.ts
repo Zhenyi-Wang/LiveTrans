@@ -395,11 +395,10 @@ export async function aiPreviewInput(
 9. 由于转录限制，原始文本可能非常混乱，请尽力理解、纠正，不可忽略。
 `;
 
-  // 构造上下文字符串(未完成翻译的条目只发original,保持序列化稳定不破坏缓存前缀)
-  const contextStr = JSON.stringify(context.map(seg => (
-    seg.opti_text && seg.opti_text !== 'processing...'
-      ? { original: seg.text, optimized: seg.opti_text, translated: seg.en_text }
-      : { original: seg.text }
+  // 预览是临时粗翻:context只发最近3条原文提供话题即可,
+  // 精简input降低单次延迟(preview吞吐须跟上current变化频率,否则积压全部过时)
+  const contextStr = JSON.stringify(context.slice(-3).map(seg => (
+    { original: seg.text }
   )), null, 2);
 
   const textStr = JSON.stringify({original: text}, null, 2);
