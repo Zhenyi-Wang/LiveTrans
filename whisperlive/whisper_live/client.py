@@ -73,6 +73,14 @@ class Client:
         self.timestamp_offset = 0.0
         self.audio_bytes = None
 
+        # dispatch 异步队列:WS回调只入队,HTTP发送在独立线程重试,前端不可用时
+        # 不阻塞WS收发(Broken pipe断流的根因),恢复后自动续传
+        if dispatch_api:
+            import queue
+            self.dispatch_queue = queue.Queue(maxsize=500)
+            self.dispatch_thread = threading.Thread(target=self._dispatch_worker, daemon=True)
+            self.dispatch_thread.start()
+
         if host is not None and port is not None:
             socket_url = f"ws://{host}:{port}"
             self.client_socket = websocket.WebSocketApp(
@@ -141,10 +149,32 @@ class Client:
         print("Client sending segments to dispatch API", segments)
 
         if self.dispatch_api:
+            segments["_enqueued_at"] = time.time()
             try:
-                request = requests.post(self.dispatch_api, data=json.dumps(segments), timeout=3)
-            except:
-                pass
+                self.dispatch_queue.put_nowait(segments)
+            except Exception:
+                # 队列满(前端长时间不可用):丢弃最旧一条,保最新
+                try:
+                    self.dispatch_queue.get_nowait()
+                    self.dispatch_queue.put_nowait(segments)
+                except Exception:
+                    pass
+
+    def _dispatch_worker(self):
+        """独立线程消费dispatch队列,失败退避重试直到成功"""
+        while True:
+            segments = self.dispatch_queue.get()
+            # 积压重放提速:过旧的纯current预览直接丢弃(confirmed永不丢)
+            if (not segments.get("confirmed")
+                    and time.time() - segments.get("_enqueued_at", 0) > 15):
+                continue
+            while True:
+                try:
+                    requests.post(self.dispatch_api, data=json.dumps(segments), timeout=3)
+                    break
+                except Exception as e:
+                    print(f"[DISPATCH] 发送失败,5s后重试: {e}")
+                    time.sleep(5)
 
     def on_message(self, ws, message):
         """
