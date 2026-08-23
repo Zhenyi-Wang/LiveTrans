@@ -1,31 +1,35 @@
-import OpenAI from "openai";
-
-
 const config = useRuntimeConfig();
-const openai = new OpenAI({
-  apiKey: config.openaiApiKey,
-  baseURL: config.openaiBaseUrl,
-});
 
 export async function aiQuery(
   prompt: string,
   message: string
 ): Promise<string> {
-  const completion = await openai.chat.completions.create({
-    model: config.openaiModel || "google/gemini-2.5-flash-lite-preview-06-17",
-    messages: [
-      {
-        role: "system",
-        content: prompt,
-      },
-      {
-        role: "user",
-        content: message,
-      },
-    ],
+  // 统一走 anthropic 端点(/v1/messages): 思考模型(go/*)需原生 thinking 参数关闭思考,
+  // OpenAI 入口的思考参数会被 new-api 转换层丢弃; 非思考模型会安全忽略 thinking 字段
+  const baseUrl = (config.openaiBaseUrl || "").replace(/\/v1\/?$/, "");
+  const resp = await fetch(`${baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.openaiApiKey}`,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.openaiModel,
+      max_tokens: 1024,
+      thinking: { type: "disabled" },
+      system: prompt,
+      messages: [{ role: "user", content: message }],
+    }),
   });
-
-  return completion.choices[0].message.content || "";
+  const data: any = await resp.json();
+  if (data.error) {
+    throw new Error(`Anthropic API error: ${JSON.stringify(data.error)}`);
+  }
+  return (data.content || [])
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("");
 }
 
 import { Segment } from "./segments";
