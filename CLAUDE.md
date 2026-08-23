@@ -76,14 +76,14 @@ pip install -r requirements/server.txt
 **confirmed 正式翻译（串行队列，segments.ts）**：
 - `enqueueConfirmed` 入队即赋唯一 id（前端按 id 匹配 confirmed→update 替换，**广播 confirmed 前 id 必须已赋值**，时序敏感）
 - drain 循环单飞消费：每批最多 `NUXT_CONFIRMED_BATCH_MAX`（默认 2）条，积压循环补齐；失败重试 2 次→拆单兜底→回退原文，字幕不断流
-- context 为**累积式窗口**（min=10/max=30，`CONTEXT_SEGMENTS_MIN/MAX`）：只追加不滑动，请求前缀逐字节稳定以命中 LLM 缓存；超 max 后丢到最近 min 条重新累积
-- 未翻译完成的条目在 context 序列化时只输出 `original` 字段（值稳定，不破坏缓存前缀）
+- **共享对话流（conversationHistory）**：每批成功后把 (user 原文, 模型原始返回) append 进对话流（append 后永不变），请求前缀严格递增——每次仅 miss 增量（上批 output + 本批输入），最大化前缀缓存命中
+- 对话流保留最近 20 轮（`NUXT_HISTORY_MAX_ROUNDS`），截断处前缀断裂一次全 miss 后恢复
 
-**current 预览翻译（listen.ts，独立于队列）**：
+**current 预览翻译（listen.ts + Segment.previewInput）**：
 - 文本变化才触发（needBroadcast 去重）；异步 fire-and-forget 不阻塞 POST 响应（dispatch 消费速度取决于响应时间）
-- 并发限制 1（与 confirmed 的 1 相加 = LLM 总并发 2）；结果缓存 50 条防转录抖动（A→B→A 直接复用）；新鲜度按句子 `start` 判断（同句演进可广播，跨句才拦）
-- **积压防护**（生产踩坑）：LLM 稍慢于 current 变化频率时等待队列会无界积压、逐条过时——等待队列超 2 条即放弃新预览；排到执行时已切句则放弃；12s 超时且未产出翻译（en_text 空）不广播
-- preview 的 context 只发最近 3 条原文（临时粗翻不需完整窗口，精简提升吞吐）
+- **与 confirmed 共享同一条对话流前缀**（互相保温缓存），最后一条 user 携带积压未翻原文（最多 3 条只发 original）作补充上文 + 尾部"仅返回英文翻译"开关（开关**说明**在 system——两种调用逐字节一致；开关**取值**在 user 侧——不能动 system 否则前缀分叉）
+- 并发限制 1（与 confirmed 的 1 相加 = LLM 总并发 2）；结果缓存 50 条防转录抖动；新鲜度按句子 `start` 判断（同句演进可广播，跨句才拦）
+- **积压防护**（生产踩坑）：等待队列超 2 条即放弃新预览；排到执行时已切句则放弃；12s 超时且未产出翻译（en_text 空）不广播
 
 **LLM 调用（ai.ts）**：
 - 统一走 new-api 网关的 **Anthropic 端点 `/v1/messages`** + `thinking:{"type":"disabled"}`。当前模型 `go/deepseek-v4-flash`（ollama pro 云）；OpenAI 入口的思考控制参数会被 new-api 转换层丢弃，必须用原生 thinking 参数
