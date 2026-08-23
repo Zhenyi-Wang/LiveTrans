@@ -56,6 +56,14 @@ export async function aiQuery(
   if (data.error) {
     throw new Error(`Anthropic API error: ${JSON.stringify(data.error)}`);
   }
+  // 缓存观测: anthropic usage 的 cache 字段(go/恒0,dss可逐请求观测)
+  const u = data.usage || {};
+  console.log("[usage]", JSON.stringify({
+    read: u.cache_read_input_tokens ?? null,
+    create: u.cache_creation_input_tokens ?? null,
+    in: u.input_tokens ?? null,
+    out: u.output_tokens ?? null,
+  }));
   return (data.content || [])
     .filter((b: any) => b.type === "text")
     .map((b: any) => b.text)
