@@ -82,7 +82,8 @@ pip install -r requirements/server.txt
 **current 预览翻译（listen.ts，独立于队列）**：
 - 文本变化才触发（needBroadcast 去重）；异步 fire-and-forget 不阻塞 POST 响应（dispatch 消费速度取决于响应时间）
 - 并发限制 1（与 confirmed 的 1 相加 = LLM 总并发 2）；结果缓存 50 条防转录抖动（A→B→A 直接复用）；新鲜度按句子 `start` 判断（同句演进可广播，跨句才拦）
-- 8s 排队超时放弃（过时预览无意义）
+- **积压防护**（生产踩坑）：LLM 稍慢于 current 变化频率时等待队列会无界积压、逐条过时——等待队列超 2 条即放弃新预览；排到执行时已切句则放弃；12s 超时且未产出翻译（en_text 空）不广播
+- preview 的 context 只发最近 3 条原文（临时粗翻不需完整窗口，精简提升吞吐）
 
 **LLM 调用（ai.ts）**：
 - 统一走 new-api 网关的 **Anthropic 端点 `/v1/messages`** + `thinking:{"type":"disabled"}`。当前模型 `go/deepseek-v4-flash`（ollama pro 云）；OpenAI 入口的思考控制参数会被 new-api 转换层丢弃，必须用原生 thinking 参数
