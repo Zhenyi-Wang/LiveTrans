@@ -69,6 +69,36 @@ pip install -r requirements/server.txt
 
 ## 开发注意事项
 
+### 翻译子系统（frontend/server/）
+
+数据链路：whisper client 识别结果 POST `/backend/api/listen` → 前端 Nitro 做矫正+翻译 → WS 广播字幕。
+
+**confirmed 正式翻译（串行队列，segments.ts）**：
+- `enqueueConfirmed` 入队即赋唯一 id（前端按 id 匹配 confirmed→update 替换，**广播 confirmed 前 id 必须已赋值**，时序敏感）
+- drain 循环单飞消费：每批最多 `NUXT_CONFIRMED_BATCH_MAX`（默认 2）条，积压循环补齐；失败重试 2 次→拆单兜底→回退原文，字幕不断流
+- context 为**累积式窗口**（min=10/max=30，`CONTEXT_SEGMENTS_MIN/MAX`）：只追加不滑动，请求前缀逐字节稳定以命中 LLM 缓存；超 max 后丢到最近 min 条重新累积
+- 未翻译完成的条目在 context 序列化时只输出 `original` 字段（值稳定，不破坏缓存前缀）
+
+**current 预览翻译（listen.ts，独立于队列）**：
+- 文本变化才触发（needBroadcast 去重）；异步 fire-and-forget 不阻塞 POST 响应（dispatch 消费速度取决于响应时间）
+- 并发限制 1（与 confirmed 的 1 相加 = LLM 总并发 2）；结果缓存 50 条防转录抖动（A→B→A 直接复用）；新鲜度按句子 `start` 判断（同句演进可广播，跨句才拦）
+- 8s 排队超时放弃（过时预览无意义）
+
+**LLM 调用（ai.ts）**：
+- 统一走 new-api 网关的 **Anthropic 端点 `/v1/messages`** + `thinking:{"type":"disabled"}`。当前模型 `go/deepseek-v4-flash`（ollama pro 云）；OpenAI 入口的思考控制参数会被 new-api 转换层丢弃，必须用原生 thinking 参数
+- ollama 云：并发上限 3（所以全局限流 2 留余量）；有自动前缀缓存但**统计恒为 0 不可观测**、多区域路由命中不稳
+- fetch 有 60s 超时（防网关挂死卡住 drain）；aiQuery 外有全局并发信号量兜底
+
+**后端 dispatch（whisper_live/client.py）**：
+- 独立队列线程 + 失败 5s 退避重试：前端重启/不可用时 WS 不断流、恢复后自动续传，**无需重启后端**
+- 过旧（>15s）的纯 current 直接丢弃加速重放；confirmed 永不丢
+
+### 部署（mini）
+- `sync-mini.sh`：build → rsync（.env/docker-compose/.output）→ `docker compose up -d --force-recreate`
+- **必须 force-recreate**：.output 是挂载卷，内容更新不触发 compose 重建，不强制重启则容器跑旧代码
+- 环境变量用 `NUXT_` 前缀（`NUXT_OPENAI_MODEL` 等）实现运行时覆盖；裸 `OPENAI_*` 会被 build 烘焙且运行时不生效
+- 本地测试模式：`run_client.py` 的 `dispatch_api` 指向 `localhost:8081`，本地 `yarn dev`（tmux 会话 livetrans-fe）；注意 dev 热重载频繁改动后可能崩（`#internal/nuxt/paths` 错误），删 `.nuxt` 重启即可，client 的 dispatch 自愈能扛住
+
 ### 环境变量配置
 前端需要配置以下环境变量（在frontend/nuxt.config.ts中）：
 - `OPENAI_API_KEY` - OpenAI API密钥
