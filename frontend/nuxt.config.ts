@@ -26,5 +26,7 @@ export default defineNuxtConfig({
     openaiApiKey: process.env.OPENAI_API_KEY,
     openaiBaseUrl: process.env.OPENAI_BASE_URL,
     openaiModel: process.env.OPENAI_MODEL,
+    // confirmed批量翻译每批最大片段数,积压时按此大小循环补齐
+    confirmedBatchMax: Number(process.env.CONFIRMED_BATCH_MAX) || 2,
   },
 });

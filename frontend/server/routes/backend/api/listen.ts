@@ -3,8 +3,45 @@
 import {
   Segment,
   saveCurrentSegment,
+  getCurrentSegment,
   isValidSegment,
+  enqueueConfirmed,
 } from '../../../utils/segments'
+
+// ===== current预览控制 =====
+// preview并发=1(与confirmed drain串行的1相加,LLM总并发≤2,低于网关3并发上限)
+let previewActive = false
+const previewWaiters: (() => void)[] = []
+
+// 预览缓存:转录抖动导致current文本来回变化(A→B→A)时直接复用,避免重复LLM调用
+const previewCache = new Map<string, string>()
+const PREVIEW_CACHE_MAX = 50
+
+async function previewCurrent(seg: Segment, contextSegs: Segment[]) {
+  const cached = previewCache.get(seg.text)
+  if (cached !== undefined) {
+    seg.en_text = cached
+    return
+  }
+  if (previewActive) {
+    await new Promise<void>(resolve => previewWaiters.push(resolve))
+  }
+  previewActive = true
+  try {
+    await seg.previewInput(contextSegs)
+    if (seg.en_text && seg.en_text !== seg.text) {
+      if (previewCache.size >= PREVIEW_CACHE_MAX) {
+        const oldest = previewCache.keys().next()
+        if (!oldest.done) previewCache.delete(oldest.value)
+      }
+      previewCache.set(seg.text, seg.en_text)
+    }
+  } finally {
+    previewActive = false
+    const next = previewWaiters.shift()
+    if (next) next()
+  }
+}
 
 export default defineEventHandler(async event => {
   const data = await readBody(event)
@@ -22,16 +59,24 @@ export default defineEventHandler(async event => {
         })
         let contextSegs = saveCurrentSegment(data.current)
 
-        await seg.previewInput(contextSegs)
-        broadcast({
-          current_en: seg,
+        // 异步预翻不阻塞响应(dispatch消费速度取决于POST响应时间);
+        // 排队超时放弃;新鲜度按句子start判断:同句滚动演进可广播(校验从宽,
+        // 避免文本高频变化导致英文预览从不更新),跨句才拦
+        void Promise.race([
+          previewCurrent(seg, contextSegs),
+          new Promise(r => setTimeout(r, 8000)),
+        ]).then(() => {
+          if (String(getCurrentSegment().start) === String(seg.start)) {
+            broadcast({
+              current_en: seg,
+            })
+          }
         })
       }
     }
   }
 
   if (data.confirmed) {
-    // console.log('Confirmed data:', data.confirmed)
     let segs = data.confirmed
       .map((seg: Segment) => {
         seg.text = cnT2S(seg.text)
@@ -39,16 +84,10 @@ export default defineEventHandler(async event => {
       })
       .filter((seg: Segment) => isValidSegment(seg))
     if (segs.length > 0) {
-      // console.log('---Confirmed segments:', segs)
-      segs.forEach(async (seg: Segment) => {
-        let contextSegs = saveConfirmedSegment(seg)
+      segs.forEach((seg: Segment) => {
+        enqueueConfirmed(seg)
         broadcast({
           confirmed: seg,
-        })
-
-        await seg.processText(contextSegs);
-        broadcast({
-          update: seg,
         })
       })
     }
