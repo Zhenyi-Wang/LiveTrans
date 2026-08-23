@@ -1,14 +1,39 @@
 const config = useRuntimeConfig();
 
+// LLM并发信号量:ollama pro并发上限3,所有调用(preview+批量)共用,留1余量
+const MAX_LLM_CONCURRENT = 2;
+let llmActive = 0;
+const llmWaiters: (() => void)[] = [];
+
+function acquireSlot(): Promise<void> {
+  if (llmActive < MAX_LLM_CONCURRENT) {
+    llmActive++;
+    return Promise.resolve();
+  }
+  return new Promise(resolve => llmWaiters.push(() => {
+    llmActive++;
+    resolve();
+  }));
+}
+
+function releaseSlot(): void {
+  llmActive--;
+  const next = llmWaiters.shift();
+  if (next) next();
+}
+
 export async function aiQuery(
   prompt: string,
   message: string
 ): Promise<string> {
+  await acquireSlot();
+  try {
   // 统一走 anthropic 端点(/v1/messages): 思考模型(go/*)需原生 thinking 参数关闭思考,
   // OpenAI 入口的思考参数会被 new-api 转换层丢弃; 非思考模型会安全忽略 thinking 字段
   const baseUrl = (config.openaiBaseUrl || "").replace(/\/v1\/?$/, "");
   const resp = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
+    signal: AbortSignal.timeout(60000), // 防LLM网关挂死卡死drain队列
     headers: {
       Authorization: `Bearer ${config.openaiApiKey}`,
       "anthropic-version": "2023-06-01",
@@ -30,27 +55,34 @@ export async function aiQuery(
     .filter((b: any) => b.type === "text")
     .map((b: any) => b.text)
     .join("");
+  } finally {
+    releaseSlot();
+  }
 }
 
 import { Segment } from "./segments";
 
+const RETRY_TIMES = 2;
+const RETRY_INTERVAL_MS = 1000;
+
 export async function aiProcessText(
   context: Segment[],
-  text: string
-): Promise<{ optimized: string; translated: string }> {
+  texts: string[]
+): Promise<{ optimized: string; translated: string }[]> {
   const OPTI_PROMPT = `你擅长文字工作和中英翻译，下面是一些基督教讲道录音自动识别出来的文本，请先改成逻辑通顺、字句流畅、标点正确的中文句子，然后翻译成对应的英文。
 
-用户传入的格式为：
-{
-  "original": "原始文本"
-}
-  
-请严格按照JSON格式返回（绝对不可以留空）：
+用户传入的格式为JSON数组（每项一条待处理文本）：
+[
+  { "original": "原始文本1" },
+  { "original": "原始文本2" }
+]
 
-{
-  "optimized": "优化后的中文文本，绝对不可以留空",
-  "translated": "对应的英文翻译，绝对不可以留空"
-}
+请严格按照JSON数组格式返回（与输入一一对应、顺序一致、长度一致，绝对不可以留空）：
+
+[
+  { "optimized": "优化后的中文文本1，绝对不可以留空", "translated": "对应的英文翻译1，绝对不可以留空" },
+  { "optimized": "优化后的中文文本2，绝对不可以留空", "translated": "对应的英文翻译2，绝对不可以留空" }
+]
 
 说明：
 1. context.original 字段对应原始文本
@@ -294,54 +326,42 @@ context：广义的,到每一项工作,都是荣耀上帝。
 
 `;
 
-  // 构造上下文字符串
-  const contextStr = JSON.stringify(context.map(seg => ({
-    original: seg.text,
-    optimized: seg.opti_text || 'processing...',
-    translated: seg.en_text || 'processing...'
-  })), null, 2);
+  // 构造上下文字符串(未完成翻译的条目只发original,保证序列化结果稳定不破坏缓存前缀)
+  const contextStr = JSON.stringify(context.map(seg => (
+    seg.opti_text && seg.opti_text !== 'processing...'
+      ? { original: seg.text, optimized: seg.opti_text, translated: seg.en_text }
+      : { original: seg.text }
+  )), null, 2);
 
-  const textStr = JSON.stringify({original: text}, null, 2);
+  const textStr = JSON.stringify(texts.map(t => ({ original: t })), null, 2);
 
   const query = `context: ${contextStr}
 
 输入：${textStr}`;
-  const result = await aiQuery(OPTI_PROMPT, query);
-  console.log({query, result});
-  // 解析JSON格式的返回结果
-  try {
-    // 尝试直接解析JSON
-    const jsonMatch = result.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= RETRY_TIMES; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, RETRY_INTERVAL_MS));
+    try {
+      const result = await aiQuery(OPTI_PROMPT, query);
+      console.log({ query, result });
+      // 解析JSON数组,校验长度与内容,不合规视为失败触发重试
+      const jsonMatch = result.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error("返回中未找到JSON数组");
       const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        optimized: parsed.optimized || text,
-        translated: parsed.translated || text
-      };
-    }
-  } catch (error) {
-    console.warn('JSON解析失败，尝试备用解析方法:', error);
-  }
-
-  // 备用解析方法：处理可能的非标准格式
-  const lines = result.split('\n').filter(line => line.trim());
-  let optimized = '';
-  let translated = '';
-
-  for (const line of lines) {
-    if (line.includes('"optimized":')) {
-      const content = line.split('"optimized":')[1].split('"')[1];
-      if (content) optimized = content;
-    } else if (line.includes('"translated":')) {
-      const content = line.split('"translated":')[1].split('"')[1];
-      if (content) translated = content;
+      if (!Array.isArray(parsed) || parsed.length !== texts.length) {
+        throw new Error(`返回数组长度${Array.isArray(parsed) ? parsed.length : '非数组'}与输入${texts.length}不符`);
+      }
+      return parsed.map((item: any, i: number) => ({
+        optimized: item.optimized || texts[i],
+        translated: item.translated || texts[i],
+      }));
+    } catch (error) {
+      lastError = error;
+      console.warn(`第${attempt + 1}次处理失败:`, error instanceof Error ? error.message : error);
     }
   }
-
-  return {
-    optimized: optimized || text, // 如果解析失败，返回原文
-    translated: translated || text, // 如果解析失败，返回原文
-  };
+  throw lastError;
 }
 
 
@@ -375,12 +395,12 @@ export async function aiPreviewInput(
 9. 由于转录限制，原始文本可能非常混乱，请尽力理解、纠正，不可忽略。
 `;
 
-  // 构造上下文字符串
-  const contextStr = JSON.stringify(context.map(seg => ({
-    original: seg.text,
-    optimized: seg.opti_text || 'processing...',
-    translated: seg.en_text || 'processing...'
-  })), null, 2);
+  // 构造上下文字符串(未完成翻译的条目只发original,保持序列化稳定不破坏缓存前缀)
+  const contextStr = JSON.stringify(context.map(seg => (
+    seg.opti_text && seg.opti_text !== 'processing...'
+      ? { original: seg.text, optimized: seg.opti_text, translated: seg.en_text }
+      : { original: seg.text }
+  )), null, 2);
 
   const textStr = JSON.stringify({original: text}, null, 2);
 
