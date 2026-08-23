@@ -33,4 +33,5 @@ done
 rsync -avz --delete /home/zhenyi/ownprojects/livetrans/frontend/.env mini:/opt/livetrans/.env
 rsync -avz --delete /home/zhenyi/ownprojects/livetrans/frontend/docker-compose.yml mini:/opt/livetrans/docker-compose.yml
 rsync -avz --delete /home/zhenyi/ownprojects/livetrans/frontend/.output mini:/opt/livetrans/
-ssh mini "docker restart livetrans"
+# .output为挂载卷,内容更新不触发compose重建,需force-recreate让容器加载新代码
+ssh mini "cd /opt/livetrans && docker compose up -d --force-recreate"
