@@ -98,7 +98,7 @@ pip install -r requirements/server.txt
 - `sync-mini.sh`：build → rsync（.env/docker-compose/.output）→ `docker compose up -d --force-recreate`
 - **必须 force-recreate**：.output 是挂载卷，内容更新不触发 compose 重建，不强制重启则容器跑旧代码
 - 环境变量用 `NUXT_` 前缀（`NUXT_OPENAI_MODEL` 等）实现运行时覆盖；裸 `OPENAI_*` 会被 build 烘焙且运行时不生效
-- 本地测试模式：`run_client.py` 的 `dispatch_api` 指向 `localhost:8081`，本地 `yarn dev`（tmux 会话 livetrans-fe）；注意 dev 热重载频繁改动后可能崩（`#internal/nuxt/paths` 错误），删 `.nuxt` 重启即可，client 的 dispatch 自愈能扛住
+- 本地测试模式：`DISPATCH_API=http://localhost:8081 ./start.sh`（默认发往 mini 生产），配合本地 `yarn dev`（tmux 会话 livetrans-fe）；注意 dev 热重载频繁改动后可能崩（`#internal/nuxt/paths` 错误），删 `.nuxt` 重启即可，client 的 dispatch 自愈能扛住
 
 ### 环境变量配置
 前端需要配置以下环境变量（在frontend/nuxt.config.ts中）：
