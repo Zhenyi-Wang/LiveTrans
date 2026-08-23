@@ -17,7 +17,7 @@ const previewWaiters: (() => void)[] = []
 const previewCache = new Map<string, string>()
 const PREVIEW_CACHE_MAX = 50
 
-async function previewCurrent(seg: Segment, contextSegs: Segment[]) {
+async function previewCurrent(seg: Segment) {
   const cached = previewCache.get(seg.text)
   if (cached !== undefined) {
     seg.en_text = cached
@@ -32,7 +32,7 @@ async function previewCurrent(seg: Segment, contextSegs: Segment[]) {
   }
   previewActive = true
   try {
-    await seg.previewInput(contextSegs)
+    await seg.previewInput()
     if (seg.en_text && seg.en_text !== seg.text) {
       if (previewCache.size >= PREVIEW_CACHE_MAX) {
         const oldest = previewCache.keys().next()
@@ -61,13 +61,13 @@ export default defineEventHandler(async event => {
         broadcast({
           current: data.current,
         })
-        let contextSegs = saveCurrentSegment(data.current)
+        saveCurrentSegment(data.current)
 
         // 异步预翻不阻塞响应(dispatch消费速度取决于POST响应时间);
         // 排队超时放弃;超时/失败未产出翻译(en_text空)不广播;
         // 新鲜度按句子start判断:同句滚动演进可广播,跨句才拦
         void Promise.race([
-          previewCurrent(seg, contextSegs),
+          previewCurrent(seg),
           new Promise(r => setTimeout(r, 12000)),
         ]).then(() => {
           if (seg.en_text && String(getCurrentSegment().start) === String(seg.start)) {

@@ -28,5 +28,7 @@ export default defineNuxtConfig({
     openaiModel: process.env.OPENAI_MODEL,
     // confirmed批量翻译每批最大片段数,积压时按此大小循环补齐
     confirmedBatchMax: Number(process.env.CONFIRMED_BATCH_MAX) || 2,
+    // 共享对话流保留的最大轮数(user/assistant一来一回为一轮)
+    historyMaxRounds: Number(process.env.HISTORY_MAX_ROUNDS) || 20,
   },
 });

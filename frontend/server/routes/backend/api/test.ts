@@ -10,9 +10,8 @@ import { aiProcessText } from "../../../utils/ai";
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
   const texts: string[] = body.texts || [body.text || "圣经真正的名字是旧兴曰全书。"];
-  const context = body.context || [];
 
-  const results = await aiProcessText(context, texts);
+  const { results } = await aiProcessText({ history: [], texts });
   return results.map((r, i) => ({
     original: texts[i],
     optimized: r.optimized,

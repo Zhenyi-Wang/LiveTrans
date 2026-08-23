@@ -1,10 +1,5 @@
-import { aiProcessText, aiPreviewInput } from "./ai";
+import { aiProcessText, ChatMessage } from "./ai";
 import { broadcast } from "./ws";
-
-// 累积式 context 窗口: 从 min 条起只追加不滑动,请求前缀逐字节稳定以利缓存命中;
-// 到达 max 后丢弃到最近 min 条重新累积,循环
-const CONTEXT_SEGMENTS_MIN = 10;
-const CONTEXT_SEGMENTS_MAX = 30;
 
 export class Segment {
   start: number;
@@ -45,17 +40,19 @@ export class Segment {
     return Segment.fromObject(JSON.parse(jsonString));
   }
 
-  async processText(contextSegments: Segment[]): Promise<void> {
-    // console.log('---process:', contextSegments, ' >>> ',this.text)
-    const result = await aiProcessText(contextSegments, this.text);
-    this.opti_text = result.optimized;
-    this.en_text = result.translated;
-  }
-
-  async previewInput(contextSegments: Segment[]): Promise<void> {
-    // console.log('---preview:', contextSegments, ' >>> ',this.text)
-    const result = await aiPreviewInput(contextSegments, this.text);
-    this.en_text = result.translated;
+  async previewInput(): Promise<void> {
+    // 共享对话流 + 队列积压原文作补充上文 + 仅英译开关
+    try {
+      const { results } = await aiProcessText({
+        history: conversationHistory,
+        pendingContext: pendingQueue.slice(-3),
+        texts: [this.text],
+        enOnly: true,
+      });
+      this.en_text = results[0].translated;
+    } catch {
+      this.en_text = this.text; // 失败回退原文,正式翻译稍后覆盖
+    }
   }
   
 
@@ -67,11 +64,13 @@ export class Segment {
 
 let currentSegment: Segment = new Segment();
 let confirmedSegments: Segment[] = [];
-let contextBase = 0; // 当前累积窗口在 confirmedSegments 中的起点
 
-export function saveCurrentSegment(s: Segment): Segment[] {
+// 共享对话流: confirmed 每批成功后追加一轮(user原文+模型原始返回,append后不变),
+// preview 与 confirmed 打同一条不断增长的前缀以最大化缓存命中
+let conversationHistory: ChatMessage[] = [];
+
+export function saveCurrentSegment(s: Segment): void {
   currentSegment = s;
-  return confirmedSegments.slice(contextBase);
 }
 
 export function getCurrentSegment(): Segment {
@@ -85,20 +84,17 @@ export function getConfirmedSegments(): Segment[] {
 export function saveConfirmedSegment(seg: Segment): Segment[] {
   let id = confirmedSegments.length;
   seg.id = id.toString();
-  // 窗口超过 max 后丢弃到最近 min 条(周期性重置,重置轮缓存全 miss)
-  if (id - contextBase > CONTEXT_SEGMENTS_MAX) {
-    contextBase = id - CONTEXT_SEGMENTS_MIN;
-  }
-  let contextSegments = confirmedSegments.slice(contextBase);
+  let contextSegments = confirmedSegments.slice();
   confirmedSegments.push(seg);
   return contextSegments;
 }
 
 // ===== confirmed 串行批处理队列 =====
-// 串行消费保证下一批 context 中历史条目均为翻译完成态(消除竞态,稳定缓存前缀);
+// 串行消费保证下一批处理时历史条目均为翻译完成态(消除竞态,稳定缓存前缀);
 // 队列积压时合并为批量调用,每批最多 confirmedBatchMax 条,超出部分循环补齐
 const runtimeConfig = useRuntimeConfig();
 const CONFIRMED_BATCH_MAX = runtimeConfig.confirmedBatchMax || 2;
+const HISTORY_MAX_ROUNDS = runtimeConfig.historyMaxRounds || 20;
 const pendingQueue: Segment[] = [];
 let draining = false;
 
@@ -119,29 +115,34 @@ async function drainQueue(): Promise<void> {
   try {
     while (pendingQueue.length > 0) {
       const batch = pendingQueue.splice(0, CONFIRMED_BATCH_MAX);
-      // 窗口重置检查 + 取context(此刻全部为完成态)
-      if (confirmedSegments.length - contextBase > CONTEXT_SEGMENTS_MAX) {
-        contextBase = confirmedSegments.length - CONTEXT_SEGMENTS_MIN;
-      }
-      const contextSegs = confirmedSegments.slice(contextBase);
       batch.forEach(seg => {
         confirmedSegments.push(seg);
       });
       try {
-        const results = await aiProcessText(contextSegs, batch.map(s => s.text));
+        const { results, turn } = await aiProcessText({
+          history: conversationHistory,
+          texts: batch.map(s => s.text),
+        });
+        // 成功后追加对话轮次(原样存档,append后永不变,保证请求前缀稳定);
+        // 超轮次从头截断(截断处前缀断裂一次全miss,之后恢复)
+        conversationHistory.push({ role: "user", content: turn.user });
+        conversationHistory.push({ role: "assistant", content: turn.assistant });
+        while (conversationHistory.length > HISTORY_MAX_ROUNDS * 2) {
+          conversationHistory.shift();
+        }
         batch.forEach((seg, i) => {
           seg.opti_text = results[i].optimized;
           seg.en_text = results[i].translated;
           broadcast({ update: seg });
         });
       } catch (error) {
-        // 批量失败(已重试耗尽):拆单逐条兜底,不带context(此时批内条目均为未完成态)
+        // 批量失败(已重试耗尽):拆单逐条兜底,不带对话历史(异常路径不追加轮次)
         console.warn("批量处理失败,拆单兜底:", error instanceof Error ? error.message : error);
         for (const seg of batch) {
           try {
-            const [r] = await aiProcessText([], [seg.text]);
-            seg.opti_text = r.optimized;
-            seg.en_text = r.translated;
+            const { results } = await aiProcessText({ history: [], texts: [seg.text] });
+            seg.opti_text = results[0].optimized;
+            seg.en_text = results[0].translated;
           } catch (e) {
             console.warn("单条兜底也失败,回退原文:", e instanceof Error ? e.message : e);
             seg.opti_text = seg.text;
@@ -201,6 +202,6 @@ export function isValidSegment(s: Segment): boolean {
 export function clearAllSegments(): void {
   currentSegment = new Segment();
   confirmedSegments = [];
-  contextBase = 0;
+  conversationHistory = [];
   nextSegmentId = 0;
 }
