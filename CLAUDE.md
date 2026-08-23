@@ -83,7 +83,7 @@ pip install -r requirements/server.txt
 - 文本变化才触发（needBroadcast 去重）；异步 fire-and-forget 不阻塞 POST 响应（dispatch 消费速度取决于响应时间）
 - **与 confirmed 共享同一条对话流前缀**（互相保温缓存），最后一条 user 携带积压未翻原文（最多 3 条只发 original）作补充上文 + 尾部"仅返回英文翻译"开关（开关**说明**在 system——两种调用逐字节一致；开关**取值**在 user 侧——不能动 system 否则前缀分叉）
 - 并发限制 1（与 confirmed 的 1 相加 = LLM 总并发 2）；结果缓存 50 条防转录抖动；新鲜度按句子 `start` 判断（同句演进可广播，跨句才拦）
-- **积压防护**（生产踩坑）：等待队列超 2 条即放弃新预览；排到执行时已切句则放弃；12s 超时且未产出翻译（en_text 空）不广播
+- **最新者胜**（single-flight+合并，无排队）：in-flight 期间新 current 只记入 pending 槽（覆盖旧值=忽略中间版本），上一个完成后翻 pending 里最新的——天然背压永不积压，高延迟渠道（如 dss 2.4s）下吞吐全部有效
 
 **LLM 调用（ai.ts）**：
 - 统一走 new-api 网关的 **Anthropic 端点 `/v1/messages`** + `thinking:{"type":"disabled"}`。当前模型 `go/deepseek-v4-flash`（ollama pro 云）；OpenAI 入口的思考控制参数会被 new-api 转换层丢弃，必须用原生 thinking 参数
@@ -98,7 +98,7 @@ pip install -r requirements/server.txt
 - `sync-mini.sh`：build → rsync（.env/docker-compose/.output）→ `docker compose up -d --force-recreate`
 - **必须 force-recreate**：.output 是挂载卷，内容更新不触发 compose 重建，不强制重启则容器跑旧代码
 - 环境变量用 `NUXT_` 前缀（`NUXT_OPENAI_MODEL` 等）实现运行时覆盖；裸 `OPENAI_*` 会被 build 烘焙且运行时不生效
-- 本地测试模式：`DISPATCH_API=http://localhost:8081 ./start.sh`（默认发往 mini 生产），配合本地 `yarn dev`（tmux 会话 livetrans-fe）；注意 dev 热重载频繁改动后可能崩（`#internal/nuxt/paths` 错误），删 `.nuxt` 重启即可，client 的 dispatch 自愈能扛住
+- 本地测试模式：改 `run_client.py` 的 `dispatch_api` 字面量为 `http://localhost:8081` 并重启后端，配合本地 `yarn dev`（tmux 会话 livetrans-fe）。**注意**：DISPATCH_API 环境变量方案存在未定位的失灵问题（进程 environ 值正确但 POST 从未发出，strace 零 connect；同值字面量正常），悬案待查，勿用 env 方式。dev 热重载频繁改动后可能崩（`#internal/nuxt/paths` 错误），删 `.nuxt` 重启即可，client 的 dispatch 自愈能扛住。**观测实时输出以 tmux pane 为准**，`tee` 的 dev.log 有管道缓冲滞后
 
 ### 环境变量配置
 前端需要配置以下环境变量（在frontend/nuxt.config.ts中）：
