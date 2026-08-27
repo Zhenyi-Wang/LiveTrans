@@ -4,3 +4,4 @@ models
 *.srt
 REFACTOR_REPORT.md
 server.log
+.playwright-mcp/
