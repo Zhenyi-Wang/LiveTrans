@@ -50,11 +50,12 @@ python run_server.py --port 9090 --backend tensorrt --trt_model_path "/path/to/t
 
 ### 完整服务启动
 ```bash
-# 使用启动脚本（推荐）
+# 服务化启动：幂等地在 tmux 'livetrans' 会话中运行 run.sh
+# （WSL 启动时由 systemd 用户单元 ~/.config/systemd/user/livetrans.service 自动执行）
 ./start.sh
 
-# 或直接运行主进程
-python main.py
+# 前台直接跑（调试用）：conda trans 环境，pkill 清残留后 python main.py
+bash run.sh
 ```
 
 ### 环境依赖
