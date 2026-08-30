@@ -16,6 +16,10 @@
     <div class="content-area" :class="`${language}-content`">
       <div v-if="isWaitingForService" class="welcome-message">
         {{ welcomeMessage }}
+        <div class="report-hint" @click="$emit('report')">
+          <FontAwesomeIcon icon="comment-dots" />
+          <span>{{ language === 'chinese' ? '如有问题请点击汇报' : 'Spot a problem? Report it' }}</span>
+        </div>
       </div>
 
       <ParagraphDisplay
@@ -39,9 +43,14 @@
 
 <script setup>
 import { computed } from 'vue'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faCommentDots } from '@fortawesome/free-solid-svg-icons'
+import { library } from '@fortawesome/fontawesome-svg-core'
 import SectionHeader from './SectionHeader.vue'
 import ParagraphDisplay from './ParagraphDisplay.vue'
 import CurrentInput from './CurrentInput.vue'
+
+library.add(faCommentDots)
 
 const props = defineProps({
   language: {
@@ -91,7 +100,7 @@ const props = defineProps({
   }
 })
 
-defineEmits(['fullscreen', 'font-size-change', 'scroll', 'toggle-auto-scroll', 'scroll-to-bottom'])
+defineEmits(['fullscreen', 'font-size-change', 'scroll', 'toggle-auto-scroll', 'scroll-to-bottom', 'report'])
 
 const welcomeMessage = computed(() => {
   return props.language === 'chinese'
@@ -125,6 +134,23 @@ const welcomeMessage = computed(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.report-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 0.9em;
+  color: var(--primary-color, #00adb5);
+  cursor: pointer;
+  opacity: 0.85;
+  transition: all 0.2s ease;
+}
+
+.report-hint:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 

@@ -58,6 +58,13 @@ const {
 
 // 监听数据变化并自动滚动
 watchDataAndScroll(currentSegment, confirmedSegments)
+
+// 报错反馈弹窗(三入口共用: header按钮/菜单末项/欢迎词)
+const showReport = ref(false)
+const openReport = () => {
+  showMenu.value = false
+  showReport.value = true
+}
 </script>
 
 <template>
@@ -76,6 +83,7 @@ watchDataAndScroll(currentSegment, confirmedSegments)
         :config-show-text="configShowText"
         :config-show-text-en="configShowTextEn"
         @toggle-menu="toggleMenu"
+        @report="openReport"
         @toggle-dark="toggleDark"
         @toggle-auto-scroll="toggleAutoScroll"
         @toggle-sync-scroll="toggleSyncScroll"
@@ -101,6 +109,7 @@ watchDataAndScroll(currentSegment, confirmedSegments)
         :is-waiting-for-service="isWaitingForService"
         :last-current-en="lastCurrentEn"
         :auto-scroll="configAutoScroll"
+        @report="openReport"
         @fullscreen="toggleChineseFullscreen"
         @font-size-change="configChineseFontSize = $event"
         @scroll="onChineseScroll"
@@ -124,6 +133,7 @@ watchDataAndScroll(currentSegment, confirmedSegments)
         :is-waiting-for-service="isWaitingForService"
         :last-current-en="lastCurrentEn"
         :auto-scroll="configAutoScroll"
+        @report="openReport"
         @fullscreen="toggleEnglishFullscreen"
         @font-size-change="configEnglishFontSize = $event"
         @scroll="onEnglishScroll"
@@ -131,6 +141,9 @@ watchDataAndScroll(currentSegment, confirmedSegments)
         @scroll-to-bottom="scrollToBottom"
       />
       </div>
+
+      <!-- 报错反馈弹窗 -->
+      <CommonReportDialog :visible="showReport" @close="showReport = false" />
     </div>
   </ClientOnly>
 </template>

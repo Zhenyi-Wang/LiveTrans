@@ -6,6 +6,9 @@
         <h2>Live Translation | 实时翻译</h2>
       </div>
       <div class="header-right">
+        <div v-show="!showMenu" class="menu-btn" @click="$emit('report')">
+          <FontAwesomeIcon icon="comment-dots" />
+        </div>
         <div v-show="!showMenu" class="menu-btn" @click="$emit('toggleMenu')">
           <FontAwesomeIcon icon="cog" />
         </div>
@@ -142,6 +145,19 @@
               </div>
             </div>
           </div>
+
+          <!-- 问题反馈 -->
+          <div class="menu-section">
+            <div class="menu-item report-item" @click="$emit('report')">
+              <div class="item-info">
+                <span class="item-icon"><FontAwesomeIcon icon="comment-dots" /></span>
+                <span class="item-label">Report an Issue | 问题反馈</span>
+              </div>
+              <div class="item-icon report-chevron">
+                <FontAwesomeIcon icon="chevron-right" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -161,7 +177,9 @@ import {
   faPlus,
   faHistory,
   faFont,
-  faEye
+  faEye,
+  faCommentDots,
+  faChevronRight
 } from '@fortawesome/free-solid-svg-icons'
 import { library } from '@fortawesome/fontawesome-svg-core'
 
@@ -177,7 +195,9 @@ library.add(
   faPlus,
   faHistory,
   faFont,
-  faEye
+  faEye,
+  faCommentDots,
+  faChevronRight
 )
 
 defineProps({
@@ -225,6 +245,7 @@ defineProps({
 
 defineEmits([
   'toggleMenu',
+  'report',
   'toggleDark',
   'toggleAutoScroll',
   'toggleSyncScroll',
@@ -473,6 +494,16 @@ header h2 {
   opacity: 1;
   transform: scale(1.1);
   color: var(--primary-color, #00adb5);
+}
+
+.report-chevron {
+  opacity: 0.5;
+  transition: all 0.2s ease;
+}
+
+.report-item:hover .report-chevron {
+  opacity: 1;
+  transform: translateX(2px);
 }
 
 .theme-item {
