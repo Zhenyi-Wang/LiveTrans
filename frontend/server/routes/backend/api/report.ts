@@ -8,27 +8,30 @@ const DEFAULT_TELLME_WEBHOOK =
 
 const lastReportAt = new Map<string, number>(); // ip -> 上次成功上报时间戳
 
+// 浏览器跨站校验白名单: 生产走腾讯云CDN回源+Caddy, 容器收到的 Host 头不等于访问域名,
+// 同源比对(origin.host === host)在该拓扑下必然误杀, 故改为显式域名白名单;
+// curl 等无 Origin 的非浏览器场景放行, 由 IP 限流兜底
+const ALLOWED_ORIGINS = [
+  "https://realtime.hainingchurch.cn",
+  "http://localhost:3000",
+  "http://localhost:8081",
+];
+
 export default defineEventHandler(async (event) => {
-  // mini 上 8081 直连暴露、无反代前置, XFF 可被客户端任意伪造, 只有 socket 地址可信
   if (getMethod(event) !== "POST") {
     setResponseHeader(event, "Allow", "POST");
     throw createError({ statusCode: 405, statusMessage: "Method Not Allowed" });
   }
-  // 浏览器跨站校验: 有 Origin 头时必须同源, 防第三方页面用 text/plain 简单请求
-  // (免预检)借访客浏览器代发; curl 等无 Origin 的非浏览器场景放行, 由 IP 限流兜底
   const origin = getRequestHeader(event, "origin");
-  if (origin) {
-    let originHost = "";
-    try {
-      originHost = new URL(origin).host;
-    } catch {
-      throw createError({ statusCode: 403, statusMessage: "Bad Origin" });
-    }
-    if (originHost !== getRequestHeader(event, "host")) {
-      throw createError({ statusCode: 403, statusMessage: "Cross-Origin Not Allowed" });
-    }
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`[report] 拒绝跨站 origin=${origin}`);
+    throw createError({ statusCode: 403, statusMessage: "Cross-Origin Not Allowed" });
   }
-  const ip = getRequestIP(event) || "unknown";
+  // 限流键: 优先 XFF 链尾(CDN/反代把对端 IP 追加在链尾, 区分度远好于全员共享的
+  // 回源 socket IP); 直连无 XFF 时(局域网直连 8081)退回 socket 地址
+  const xff = getRequestHeader(event, "x-forwarded-for");
+  const xffTail = xff ? xff.split(",").pop()!.trim() : "";
+  const ip = xffTail || getRequestIP(event) || "unknown";
   const now = Date.now();
 
   if (now - (lastReportAt.get(ip) || 0) < RATE_LIMIT_MS) {
@@ -76,7 +79,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 502, statusMessage: "Failed to forward report" });
   }
 
-  console.log(`[report] 已转发 ip=${ip}: ${(userText || "(no description)").replace(/[\r\n\t]/g, " ").slice(0, 100)}`);
+  console.log(
+    `[report] 已转发 ip=${ip} socket=${getRequestIP(event)} xff=${xff || "-"}: ` +
+      `${(userText || "(no description)").replace(/[\r\n\t]/g, " ").slice(0, 100)}`
+  );
   // Map 防无限增长: 超过 1000 条时清掉已过窗口的旧条目
   if (lastReportAt.size > 1000) {
     for (const [k, t] of lastReportAt) {
