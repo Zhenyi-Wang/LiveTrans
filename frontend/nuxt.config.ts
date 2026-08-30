@@ -30,5 +30,7 @@ export default defineNuxtConfig({
     confirmedBatchMax: Number(process.env.CONFIRMED_BATCH_MAX) || 2,
     // 共享对话流保留的最大轮数(user/assistant一来一回为一轮)
     historyMaxRounds: Number(process.env.HISTORY_MAX_ROUNDS) || 20,
+    // 观众报错反馈的 n8n webhook(tellme 同款通道), NUXT_TELLME_WEBHOOK 可运行时覆盖
+    tellmeWebhook: process.env.TELLME_WEBHOOK,
   },
 });
