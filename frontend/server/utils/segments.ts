@@ -48,6 +48,7 @@ export class Segment {
         pendingContext: pendingQueue.slice(-3),
         texts: [this.text],
         enOnly: true,
+        channel: "preview",
       });
       this.en_text = results[0].translated;
     } catch {
@@ -122,6 +123,7 @@ async function drainQueue(): Promise<void> {
         const { results, turn } = await aiProcessText({
           history: conversationHistory,
           texts: batch.map(s => s.text),
+          channel: `confirmed:${batch.length}`,
         });
         // 成功后追加对话轮次(原样存档,append后永不变,保证请求前缀稳定);
         // 超轮次从头截断(截断处前缀断裂一次全miss,之后恢复)
@@ -140,7 +142,7 @@ async function drainQueue(): Promise<void> {
         console.warn("批量处理失败,拆单兜底:", error instanceof Error ? error.message : error);
         for (const seg of batch) {
           try {
-            const { results } = await aiProcessText({ history: [], texts: [seg.text] });
+            const { results } = await aiProcessText({ history: [], texts: [seg.text], channel: "confirmed-fallback" });
             seg.opti_text = results[0].optimized;
             seg.en_text = results[0].translated;
           } catch (e) {

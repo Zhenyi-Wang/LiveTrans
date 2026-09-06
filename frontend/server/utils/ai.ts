@@ -29,9 +29,11 @@ export interface ChatMessage {
 
 export async function aiQuery(
   prompt: string,
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  channel?: string
 ): Promise<string> {
   await acquireSlot();
+  const startedAt = Date.now();
   try {
   // 统一走 anthropic 端点(/v1/messages): 思考模型(go/*)需原生 thinking 参数关闭思考,
   // OpenAI 入口的思考参数会被 new-api 转换层丢弃; 非思考模型会安全忽略 thinking 字段
@@ -59,6 +61,8 @@ export async function aiQuery(
   // 缓存观测: anthropic usage 的 cache 字段(go/恒0,dss可逐请求观测)
   const u = data.usage || {};
   console.log("[usage]", JSON.stringify({
+    ms: Date.now() - startedAt,
+    ch: channel ?? null,
     read: u.cache_read_input_tokens ?? null,
     create: u.cache_creation_input_tokens ?? null,
     in: u.input_tokens ?? null,
@@ -88,6 +92,7 @@ export async function aiProcessText(params: {
   pendingContext?: Segment[]; // 积压未翻原文,作为最后一条user的补充上文
   texts: string[];
   enOnly?: boolean;            // 仅返回英文翻译(current预览开关)
+  channel?: string;            // 调用通道标签,进[usage]日志区分preview/confirmed
 }): Promise<{ results: { optimized: string; translated: string }[]; turn: AiTurn }> {
   const OPTI_PROMPT = `你擅长文字工作和中英翻译，下面是一些基督教讲道录音自动识别出来的文本，请先改成逻辑通顺、字句流畅、标点正确的中文句子，然后翻译成对应的英文。
 
@@ -365,7 +370,7 @@ context：广义的,到每一项工作,都是荣耀上帝。
   for (let attempt = 0; attempt <= RETRY_TIMES; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, RETRY_INTERVAL_MS));
     try {
-      const result = await aiQuery(OPTI_PROMPT, messages);
+      const result = await aiQuery(OPTI_PROMPT, messages, params.channel);
       console.log({ messages, result });
       // 解析JSON数组,校验长度,不合规视为失败触发重试
       const jsonMatch = result.match(/\[[\s\S]*\]/);
