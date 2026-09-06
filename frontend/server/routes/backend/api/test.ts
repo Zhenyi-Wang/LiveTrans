@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event);
   const texts: string[] = body.texts || [body.text || "圣经真正的名字是旧兴曰全书。"];
 
-  const { results } = await aiProcessText({ history: [], texts });
+  const { results } = await aiProcessText({ history: [], texts, channel: "test" });
   return results.map((r, i) => ({
     original: texts[i],
     optimized: r.optimized,

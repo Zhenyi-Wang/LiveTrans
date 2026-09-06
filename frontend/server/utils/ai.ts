@@ -40,7 +40,11 @@ export async function aiQuery(
   const baseUrl = (config.openaiBaseUrl || "").replace(/\/v1\/?$/, "");
   const resp = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
-    signal: AbortSignal.timeout(config.llmTimeoutMs), // 防LLM网关挂死卡死drain队列(默认15s,NUXT_LLM_TIMEOUT_MS可调)
+    // 钳位在使用点: runtimeConfig的NUXT_前缀运行时覆盖绕过nuxt.config.ts里的build时钳位。
+    // Number()兜住字符串型非法值(destr解析不了的如"15s"原样传入);非整数小数会同步抛
+    // RangeError;(2^31,2^32]不抛错但内部setTimeout溢出警告且时长置1ms(调用即超时),
+    // 故上限取setTimeout的32位有符号整数边界2147483647——三类非法输入都必须全路径收敛
+    signal: AbortSignal.timeout(Math.min(2147483647, Math.max(1000, Math.trunc(Number(config.llmTimeoutMs)) || 15000))), // 防LLM网关挂死卡死drain队列(默认15s,NUXT_LLM_TIMEOUT_MS可调)
     headers: {
       Authorization: `Bearer ${config.openaiApiKey}`,
       "anthropic-version": "2023-06-01",
@@ -72,6 +76,14 @@ export async function aiQuery(
     .filter((b: any) => b.type === "text")
     .map((b: any) => b.text)
     .join("");
+  } catch (e) {
+    // 失败路径同样记录耗时: 超时/网关错误的右尾正是延迟分析最关键的数据
+    console.warn("[usage]", JSON.stringify({
+      ms: Date.now() - startedAt,
+      ch: channel ?? null,
+      err: e instanceof Error ? e.message : String(e),
+    }));
+    throw e;
   } finally {
     releaseSlot();
   }
