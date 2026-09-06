@@ -40,7 +40,7 @@ export async function aiQuery(
   const baseUrl = (config.openaiBaseUrl || "").replace(/\/v1\/?$/, "");
   const resp = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
-    signal: AbortSignal.timeout(60000), // 防LLM网关挂死卡死drain队列
+    signal: AbortSignal.timeout(config.llmTimeoutMs), // 防LLM网关挂死卡死drain队列(默认15s,NUXT_LLM_TIMEOUT_MS可调)
     headers: {
       Authorization: `Bearer ${config.openaiApiKey}`,
       "anthropic-version": "2023-06-01",
