@@ -87,9 +87,9 @@ pip install -r requirements/server.txt
 - **最新者胜**（single-flight+合并，无排队）：in-flight 期间新 current 只记入 pending 槽（覆盖旧值=忽略中间版本），上一个完成后翻 pending 里最新的——天然背压永不积压，高延迟渠道（如 dss 2.4s）下吞吐全部有效
 
 **LLM 调用（ai.ts）**：
-- 统一走 new-api 网关的 **Anthropic 端点 `/v1/messages`** + `thinking:{"type":"disabled"}`。当前模型 `go/deepseek-v4-flash`（ollama pro 云）；OpenAI 入口的思考控制参数会被 new-api 转换层丢弃，必须用原生 thinking 参数
-- ollama 云：并发上限 3（所以全局限流 2 留余量）；有自动前缀缓存但**统计恒为 0 不可观测**、多区域路由命中不稳
-- fetch 有 60s 超时（防网关挂死卡住 drain）；aiQuery 外有全局并发信号量兜底
+- 统一走 new-api 网关的 **Anthropic 端点 `/v1/messages`** + `thinking:{"type":"disabled"}`。当前模型 `dss/deepseek-v4-flash`（2026-09-09 试用：快 ~1.5s、缓存稳、无思考）；渠道对比与 gpt-5.6-luna 备选方案见 [docs/2026-09-09_翻译模型渠道对比与gpt思考缓存实测.md](docs/2026-09-09_翻译模型渠道对比与gpt思考缓存实测.md)。OpenAI 入口的思考控制参数会被 new-api 转换层丢弃，必须用原生 thinking 参数（注意：对 CPA 渠道 gpt 系无效，禁不掉思考）
+- 渠道前缀：`go/`=ollama pro（并发上限 3，缓存统计恒 0）、`dss/`=快且缓存稳、无前缀模型名可能不存在（model_not_found）；`[usage]` 日志含 `think` 字段（gpt 系渠道）
+- fetch 超时默认 15s、`NUXT_LLM_TIMEOUT_MS` 可调（防网关挂死卡住 drain）；aiQuery 外有全局并发信号量兜底
 
 **后端 dispatch（whisper_live/client.py）**：
 - 独立队列线程 + 失败 5s 退避重试：前端重启/不可用时 WS 不断流、恢复后自动续传，**无需重启后端**
@@ -132,4 +132,5 @@ pip install -r requirements/server.txt
 
 ## docs 知识索引
 
+- [翻译模型渠道对比与gpt思考缓存实测](docs/2026-09-09_翻译模型渠道对比与gpt思考缓存实测.md) — 2026-09-09定档dss/deepseek-v4-flash试用、gpt-5.6-luna三坑(思考禁不掉/缓存不稳/延迟3~10s)、回切优化路径(prompt_cache_key+CPA源码机制)、网关渠道表
 - [直播翻译挤压排查与LLM超时调优](docs/2026-09-07_直播翻译挤压排查与LLM超时调优.md) — 2026-09-06挤压根因(LLM上游劣化+60s超时占槽)、耗时实测(p99=8.5s)、超时降至15s可配置(NUXT_LLM_TIMEOUT_MS)、网关实际指向144.24.9.183待确认
