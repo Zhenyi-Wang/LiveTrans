@@ -96,6 +96,12 @@ pip install -r requirements/server.txt
 - 独立队列线程 + 失败 5s 退避重试：前端重启/不可用时 WS 不断流、恢复后自动续传，**无需重启后端**
 - 过旧（>15s）的纯 current 直接丢弃加速重放；confirmed 永不丢
 
+**主日值守监控（mini 侧 server/plugins/monitor.ts + home 侧转录检查端口）**：
+- 默认主日（周日）07:40-09:25：开始时间+宽限(180s)后检查 转录可达/音频三态/字幕（最近30分钟回看），异常持续 60s 二次确认后经 tellme webhook 真实通知；结束时间+宽限(120s)后仍在直播则通知
+- 架构：**mini 只拉 home 转录 `/status` 一个数据源**（run_client.py :9091 暴露流三态+WS+uptime，转录挂=拉取失败天然可检）；字幕读本进程 pipelineStatus（listen.ts 埋点，state 挂 globalThis 防 dev 模块双实例分裂）；值守是一次性通知，不做多源二次诊断
+- 防误报：默认仅周日、宽限期只观察、二次确认、每检查点当天只通知一次；结束时转录不可达则不重复通知（开始检查已报过）
+- env 见 [docs/2026-09-14_主日值守监控设计.md](docs/2026-09-14_主日值守监控设计.md)（`MONITOR_*` mini 侧 / `LIVETRANS_STATUS_PORT` 等 home 侧；`MONITOR_DRY_RUN=1` 测试不发送）；home 检查端口已生效（2026-09-14 重启），mini 侧 sync-mini.sh 部署即激活（`MONITOR_ENABLED=0` 关闭）
+
 ### 部署（mini）
 - `sync-mini.sh`：build → rsync（.env/docker-compose/.output）→ `docker compose up -d --force-recreate`
 - **必须 force-recreate**：.output 是挂载卷，内容更新不触发 compose 重建，不强制重启则容器跑旧代码
@@ -133,6 +139,7 @@ pip install -r requirements/server.txt
 
 ## docs 知识索引
 
+- [主日值守监控设计](docs/2026-09-14_主日值守监控设计.md) — 2026-09-14 v2定稿: mini侧监控只拉home转录/status单源(转录挂=拉取失败天然可检)+本地字幕流水(globalThis防dev双实例)、宽限+二次确认防误报、真实推流+真实tellme实测矩阵、env配置表、home已生效/mini待部署
 - [缓存命中率82%结构分析与日志时区修复](docs/2026-09-14_缓存命中率82%结构分析与日志时区修复.md) — 2026-09-13命中率82.26%为20轮饱和窗口的结构性稳态(每批append+shift断前缀,每代首条全量重发~1530tok)、本地日志与平台侧分毫对账、docker logs -t恒UTC需+8、[usage]已加ts字段
 - [翻译模型渠道对比与gpt思考缓存实测](docs/2026-09-09_翻译模型渠道对比与gpt思考缓存实测.md) — 2026-09-09定档dss/deepseek-v4-flash试用、gpt-5.6-luna三坑(思考禁不掉/缓存不稳/延迟3~10s)、回切优化路径(prompt_cache_key+CPA源码机制)、网关渠道表
 - [直播翻译挤压排查与LLM超时调优](docs/2026-09-07_直播翻译挤压排查与LLM超时调优.md) — 2026-09-06挤压根因(LLM上游劣化+60s超时占槽)、耗时实测(p99=8.5s)、超时降至15s可配置(NUXT_LLM_TIMEOUT_MS)、网关实际指向144.24.9.183待确认
