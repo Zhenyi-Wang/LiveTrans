@@ -27,6 +27,9 @@ export interface ChatMessage {
   content: string;
 }
 
+// 日志时间戳: 显式+8格式化,不依赖容器TZ(docker logs -t 的时间戳由dockerd打、恒为UTC,分析时与本地时间差8h)
+const localTs = () => new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
+
 export async function aiQuery(
   prompt: string,
   messages: ChatMessage[],
@@ -65,6 +68,7 @@ export async function aiQuery(
   // 缓存观测: anthropic usage 的 cache 字段(go/恒0,dss可逐请求观测)
   const u = data.usage || {};
   console.log("[usage]", JSON.stringify({
+    ts: localTs(),
     ms: Date.now() - startedAt,
     ch: channel ?? null,
     read: u.cache_read_input_tokens ?? null,
@@ -80,6 +84,7 @@ export async function aiQuery(
   } catch (e) {
     // 失败路径同样记录耗时: 超时/网关错误的右尾正是延迟分析最关键的数据
     console.warn("[usage]", JSON.stringify({
+      ts: localTs(),
       ms: Date.now() - startedAt,
       ch: channel ?? null,
       err: e instanceof Error ? e.message : String(e),
