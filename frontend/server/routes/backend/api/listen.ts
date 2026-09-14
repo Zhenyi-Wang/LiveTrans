@@ -7,6 +7,7 @@ import {
   isValidSegment,
   enqueueConfirmed,
 } from '../../../utils/segments'
+import { recordListen } from '../../../utils/pipelineStatus'
 
 // ===== current预览控制:最新者胜,无排队 =====
 // preview并发=1(与confirmed drain串行的1相加,LLM总并发≤2);
@@ -68,6 +69,7 @@ async function previewCurrent(seg: Segment): Promise<void> {
 
 export default defineEventHandler(async event => {
   const data = await readBody(event)
+  recordListen('any') // 值守监控: 任意合法 POST 都算链路流量
   console.log('Received data:', typeof data, data)
 
   if (data.current) {
@@ -81,6 +83,7 @@ export default defineEventHandler(async event => {
           current: data.current,
         })
         saveCurrentSegment(data.current)
+        recordListen('current')
 
         // 异步预翻不阻塞响应(dispatch消费速度取决于POST响应时间);
         // 最新者胜:处理中只保留最新pending,完成后续翻最新版
@@ -103,6 +106,7 @@ export default defineEventHandler(async event => {
           confirmed: seg,
         })
       })
+      recordListen('confirmed')
     }
   }
 

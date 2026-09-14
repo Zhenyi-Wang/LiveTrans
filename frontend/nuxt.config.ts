@@ -40,5 +40,21 @@ export default defineNuxtConfig({
     llmTimeoutMs: Math.min(2147483647, Math.max(1000, Math.trunc(Number(process.env.LLM_TIMEOUT_MS)) || 15000)),
     // 观众报错反馈的 n8n webhook(tellme 同款通道), NUXT_TELLME_WEBHOOK 可运行时覆盖
     tellmeWebhook: process.env.TELLME_WEBHOOK,
+    // ===== 主日值守监控(mini 侧, server/plugins/monitor.ts) =====
+    // 默认主日(周日) 07:40-09:25: 开始检查转录/音频/字幕三状态, 结束检查是否仍在直播
+    monitorEnabled: process.env.MONITOR_ENABLED !== "0",
+    monitorServiceStart: process.env.MONITOR_SERVICE_START || "07:40",
+    monitorServiceEnd: process.env.MONITOR_SERVICE_END || "09:25",
+    monitorServiceDays: process.env.MONITOR_SERVICE_DAYS || "sun",
+    monitorStartGraceSec: process.env.MONITOR_START_GRACE_SEC || 180,
+    monitorEndGraceSec: process.env.MONITOR_END_GRACE_SEC || 120,
+    monitorConfirmSec: process.env.MONITOR_CONFIRM_SEC || 60,
+    // 字幕"有/无"判定滚动回看窗口(秒)
+    monitorSubsLookbackSec: process.env.MONITOR_SUBS_LOOKBACK_SEC || 1800,
+    monitorCheckIntervalSec: process.env.MONITOR_CHECK_INTERVAL_SEC || 20,
+    // home 转录检查端口(run_client.py 暴露), 单一数据源一次拉全
+    monitorTranscribeApi: process.env.MONITOR_TRANSCRIBE_API || "http://192.168.123.16:9091/status",
+    // 非空字符串 "1"/"true" 时只打印不发送通知
+    monitorDryRun: process.env.MONITOR_DRY_RUN || false,
   },
 });
