@@ -95,7 +95,9 @@ export function saveConfirmedSegment(seg: Segment): Segment[] {
 // 队列积压时合并为批量调用,每批最多 confirmedBatchMax 条,超出部分循环补齐
 const runtimeConfig = useRuntimeConfig();
 const CONFIRMED_BATCH_MAX = runtimeConfig.confirmedBatchMax || 2;
-const HISTORY_MAX_ROUNDS = runtimeConfig.historyMaxRounds || 20;
+// 使用点 Number() 收敛: NUXT_ 运行时覆盖进的是字符串(ai.ts llmTimeoutMs 先例); MAX 配小于 MIN 时钳到 MIN
+const HISTORY_MIN_ROUNDS = Math.max(1, Math.trunc(Number(runtimeConfig.historyMinRounds)) || 20);
+const HISTORY_MAX_ROUNDS = Math.max(HISTORY_MIN_ROUNDS, Math.trunc(Number(runtimeConfig.historyMaxRounds)) || 100);
 const pendingQueue: Segment[] = [];
 let draining = false;
 
@@ -126,11 +128,15 @@ async function drainQueue(): Promise<void> {
           channel: `confirmed:${batch.length}`,
         });
         // 成功后追加对话轮次(原样存档,append后永不变,保证请求前缀稳定);
-        // 超轮次从头截断(截断处前缀断裂一次全miss,之后恢复)
+        // 锯齿式截断: 超过 MAX 轮一次裁到 MIN 轮(保留最近),而非逐条 shift——
+        // 逐条截断每批都从头上打断前缀,DeepSeek 缓存全场失效(2026-09-13 实测命中率仅82%);
+        // 拉长断裂间隔到 (MAX-MIN) 批一次,命中率 82%→~98%(见 docs/2026-09-14 分析)
         conversationHistory.push({ role: "user", content: turn.user });
         conversationHistory.push({ role: "assistant", content: turn.assistant });
-        while (conversationHistory.length > HISTORY_MAX_ROUNDS * 2) {
-          conversationHistory.shift();
+        if (conversationHistory.length > HISTORY_MAX_ROUNDS * 2) {
+          const cut = conversationHistory.length - HISTORY_MIN_ROUNDS * 2;
+          conversationHistory.splice(0, cut);
+          console.log(`[history] 锯齿裁剪: 移除${cut / 2}轮, 保留${HISTORY_MIN_ROUNDS}轮`);
         }
         batch.forEach((seg, i) => {
           seg.opti_text = results[i].optimized;

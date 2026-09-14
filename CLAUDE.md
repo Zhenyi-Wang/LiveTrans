@@ -78,12 +78,13 @@ pip install -r requirements/server.txt
 - `enqueueConfirmed` 入队即赋唯一 id（前端按 id 匹配 confirmed→update 替换，**广播 confirmed 前 id 必须已赋值**，时序敏感）
 - drain 循环单飞消费：每批最多 `NUXT_CONFIRMED_BATCH_MAX`（默认 2）条，积压循环补齐；失败重试 2 次→拆单兜底→回退原文，字幕不断流
 - **共享对话流（conversationHistory）**：每批成功后把 (user 原文, 模型原始返回) append 进对话流（append 后永不变），请求前缀严格递增——每次仅 miss 增量（上批 output + 本批输入），最大化前缀缓存命中
-- 对话流保留最近 20 轮（`NUXT_HISTORY_MAX_ROUNDS`），截断处前缀断裂一次全 miss 后恢复
+- 对话流窗口锯齿式（2026-09-14 起）：超 `NUXT_HISTORY_MAX_ROUNDS`(默认100) 轮**一次裁到** `NUXT_HISTORY_MIN_ROUNDS`(默认20) 轮并打 `[history]` 日志，前缀断裂每 ~(MAX-MIN) 批一次（旧实现逐条 shift 每批断一次，实测命中率仅 82%，见 docs/2026-09-14 分析）
 
 **current 预览翻译（listen.ts + Segment.previewInput）**：
 - 文本变化才触发（needBroadcast 去重）；异步 fire-and-forget 不阻塞 POST 响应（dispatch 消费速度取决于响应时间）
 - **与 confirmed 共享同一条对话流前缀**（互相保温缓存），最后一条 user 携带积压未翻原文（最多 3 条只发 original）作补充上文 + 尾部"仅返回英文翻译"开关（开关**说明**在 system——两种调用逐字节一致；开关**取值**在 user 侧——不能动 system 否则前缀分叉）
 - 并发限制 1（与 confirmed 的 1 相加 = LLM 总并发 2）；结果缓存 50 条防转录抖动；新鲜度按句子 `start` 判断（同句演进可广播，跨句才拦）
+- 频率闸（2026-09-14 起）：距上次 LLM 发起 ≥`NUXT_PREVIEW_MIN_INTERVAL_MS`(默认3000ms, start-to-start) 才发起下一次；等待期新文本照旧进 pending 槽（最新者胜不变），previewCache 命中不占闸——实测限流前调用中位间隔仅 1.7s，中间版本多数白翻
 - **最新者胜**（single-flight+合并，无排队）：in-flight 期间新 current 只记入 pending 槽（覆盖旧值=忽略中间版本），上一个完成后翻 pending 里最新的——天然背压永不积压，高延迟渠道（如 dss 2.4s）下吞吐全部有效
 
 **LLM 调用（ai.ts）**：
@@ -132,5 +133,6 @@ pip install -r requirements/server.txt
 
 ## docs 知识索引
 
+- [缓存命中率82%结构分析与日志时区修复](docs/2026-09-14_缓存命中率82%结构分析与日志时区修复.md) — 2026-09-13命中率82.26%为20轮饱和窗口的结构性稳态(每批append+shift断前缀,每代首条全量重发~1530tok)、本地日志与平台侧分毫对账、docker logs -t恒UTC需+8、[usage]已加ts字段
 - [翻译模型渠道对比与gpt思考缓存实测](docs/2026-09-09_翻译模型渠道对比与gpt思考缓存实测.md) — 2026-09-09定档dss/deepseek-v4-flash试用、gpt-5.6-luna三坑(思考禁不掉/缓存不稳/延迟3~10s)、回切优化路径(prompt_cache_key+CPA源码机制)、网关渠道表
 - [直播翻译挤压排查与LLM超时调优](docs/2026-09-07_直播翻译挤压排查与LLM超时调优.md) — 2026-09-06挤压根因(LLM上游劣化+60s超时占槽)、耗时实测(p99=8.5s)、超时降至15s可配置(NUXT_LLM_TIMEOUT_MS)、网关实际指向144.24.9.183待确认

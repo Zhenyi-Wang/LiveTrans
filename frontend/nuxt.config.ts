@@ -28,8 +28,11 @@ export default defineNuxtConfig({
     openaiModel: process.env.OPENAI_MODEL,
     // confirmed批量翻译每批最大片段数,积压时按此大小循环补齐
     confirmedBatchMax: Number(process.env.CONFIRMED_BATCH_MAX) || 2,
-    // 共享对话流保留的最大轮数(user/assistant一来一回为一轮)
-    historyMaxRounds: Number(process.env.HISTORY_MAX_ROUNDS) || 20,
+    // 共享对话流窗口(锯齿式): 超过 MAX 轮一次裁到 MIN 轮,拉长前缀断裂间隔以保 DeepSeek 缓存命中率
+    historyMinRounds: Number(process.env.HISTORY_MIN_ROUNDS) || 20,
+    historyMaxRounds: Number(process.env.HISTORY_MAX_ROUNDS) || 100,
+    // current 预览 LLM 调用最小间隔(ms,start-to-start),限流中间版本翻译; NUXT_PREVIEW_MIN_INTERVAL_MS 可运行时覆盖
+    previewMinIntervalMs: Number(process.env.PREVIEW_MIN_INTERVAL_MS) || 3000,
     // LLM单次调用超时(ms): 超时触发重试,防网关卡死占住并发槽拖垮串行翻译队列
     // 实测正常p99=8.5s,15s≈1.8×p99,正常抖动零误杀;可用 NUXT_LLM_TIMEOUT_MS 运行时覆盖
     // 钳位与使用点(ai.ts)同款: 非整数/负数同步抛RangeError,(2^31,2^32]被置1ms即超时,

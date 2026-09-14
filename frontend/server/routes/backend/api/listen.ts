@@ -15,6 +15,11 @@ import {
 let previewActive = false
 let pendingSeg: Segment | null = null
 
+// 预览频率闸: 距上次 LLM 发起不足该间隔则等满再发(start-to-start); 等待期新文本照旧进pending槽,
+// 发起时翻闸前已持有的seg,pending更新文本由循环下一轮接力; previewCache命中不占闸(纯内存复用)
+const PREVIEW_MIN_INTERVAL_MS = Math.min(2147483647, Math.max(0, Math.trunc(Number(useRuntimeConfig().previewMinIntervalMs)) || 3000));
+let lastPreviewStart = 0
+
 // 预览缓存:转录抖动导致current文本来回变化(A→B→A)时直接复用,避免重复LLM调用
 const previewCache = new Map<string, string>()
 const PREVIEW_CACHE_MAX = 50
@@ -40,6 +45,9 @@ async function previewCurrent(seg: Segment): Promise<void> {
       if (cached !== undefined) {
         seg.en_text = cached
       } else {
+        const wait = lastPreviewStart + PREVIEW_MIN_INTERVAL_MS - Date.now()
+        if (wait > 0) await new Promise(r => setTimeout(r, wait))
+        lastPreviewStart = Date.now()
         await seg.previewInput()
         if (seg.en_text && seg.en_text !== seg.text) {
           if (previewCache.size >= PREVIEW_CACHE_MAX) {
