@@ -1,4 +1,6 @@
+import collections
 import json
+import math
 import os
 import select
 import shutil
@@ -65,6 +67,7 @@ class Client:
         self.use_vad = use_vad
         self.last_segment = None
         self.last_received_segment = None
+        self.last_segment_at = None  # 最近一次收到 server 字幕的时刻(诊断用,status 端口暴露)
         self.dispatch_api = dispatch_api
 
         if translate:
@@ -147,6 +150,7 @@ class Client:
         #     print(t)
 
         print("Client sending segments to dispatch API", segments)
+        self.last_segment_at = time.time()
 
         if self.dispatch_api:
             segments["_enqueued_at"] = time.time()
@@ -388,6 +392,14 @@ class TranscriptionTeeClient:
         self.p = pyaudio.PyAudio()
         self.stderr_thread = None
         self.stop_stderr = threading.Event()
+
+        # 流状态跟踪(供 run_client.py 的 /status 检查端口暴露, mini 侧值守监控拉取)
+        self.stream_started_at = time.time()
+        self.last_stream_data_at = None
+        self.stream_packet_count = 0
+        self._rms_events = collections.deque()  # (ts, rms_db), 30s 滑窗
+        self.silence_db = float(os.environ.get("LIVETRANS_SILENCE_DB", "-60"))
+        self.stream_fresh_sec = float(os.environ.get("LIVETRANS_STREAM_FRESH_SEC", "10"))
         try:
             self.stream = self.p.open(
                 format=self.format,
@@ -844,6 +856,7 @@ class TranscriptionTeeClient:
 
                 audio_array = self.bytes_to_float_array(in_bytes)
                 self.multicast_packet(audio_array.tobytes())
+                self._note_stream_data(audio_array)
                 audio_packet_count += 1
                 if audio_packet_count == 1:
                     print(f"[{Client.ts()}] [STREAM] First audio packet sent ({len(in_bytes)} bytes)")
@@ -870,6 +883,48 @@ class TranscriptionTeeClient:
                     pass
 
         print(f"[{Client.ts()}] [STREAM] {stream_type} processing finished (total_packets={audio_packet_count})")
+
+    def _note_stream_data(self, audio_array):
+        """更新流状态跟踪: 最近收包时间/包数/30s 滑窗 RMS(供 /status 检查端口读取)。"""
+        now = time.time()
+        self.last_stream_data_at = now
+        self.stream_packet_count += 1
+        rms = float(np.sqrt(np.mean(np.square(audio_array))))
+        db = 20.0 * math.log10(rms) if rms > 0 else -100.0
+        self._rms_events.append((now, db))
+        cutoff = now - 30
+        while self._rms_events and self._rms_events[0][0] < cutoff:
+            self._rms_events.popleft()
+
+    def stream_state(self):
+        """流三态: no_stream(断流/未连上) / silent(有流但静音) / ok。"""
+        now = time.time()
+        if self.last_stream_data_at is None or now - self.last_stream_data_at > self.stream_fresh_sec:
+            return "no_stream"
+        max_db = max((db for _, db in self._rms_events), default=-100.0)
+        if max_db <= self.silence_db:
+            return "silent"
+        return "ok"
+
+    def status_snapshot(self):
+        """/status 检查端口响应体: 流/WS/ASR 运行状态一览。"""
+        client = self.clients[0] if self.clients else None
+        max_db = round(max((db for _, db in self._rms_events), default=-100.0), 1)
+        return {
+            "ok": True,
+            "uptime_sec": int(time.time() - self.stream_started_at),
+            "stream": {
+                "state": self.stream_state(),
+                "last_data_at": int(self.last_stream_data_at * 1000) if self.last_stream_data_at else None,
+                "packet_count": self.stream_packet_count,
+                "max_rms_db_30s": max_db,
+            },
+            "ws": {"recording": bool(client and client.recording)},
+            "asr": {
+                "last_segment_at": int(client.last_segment_at * 1000)
+                if getattr(client, "last_segment_at", None) else None,
+            },
+        }
 
     def get_rtsp_ffmpeg_process(self, rtsp_url):
         return (
