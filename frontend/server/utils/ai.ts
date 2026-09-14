@@ -71,6 +71,7 @@ export async function aiQuery(
     create: u.cache_creation_input_tokens ?? null,
     in: u.input_tokens ?? null,
     out: u.output_tokens ?? null,
+    think: u.output_tokens_details?.thinking_tokens ?? null, // gpt系经CPA渠道返回,thinking始终未被真正禁用,观测其长度
   }));
   return (data.content || [])
     .filter((b: any) => b.type === "text")
