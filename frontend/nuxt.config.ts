@@ -23,6 +23,10 @@ export default defineNuxtConfig({
     },
   },
   runtimeConfig: {
+    // /st 测试页 demo 数据开关(仅 dev 按需开启: NUXT_DEMO_FEED=1 yarn dev);生产不设则无痕
+    public: {
+      demoFeed: process.env.NUXT_DEMO_FEED === "1",
+    },
     openaiApiKey: process.env.OPENAI_API_KEY,
     openaiBaseUrl: process.env.OPENAI_BASE_URL,
     openaiModel: process.env.OPENAI_MODEL,
