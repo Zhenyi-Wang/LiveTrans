@@ -8,8 +8,8 @@ const EPS = 1        // 程序写入自身事件的噪声容差(px)
 const DRIFT = 8      // 向上累计介入阈值(px)
 const BOTTOM = 1     // 贴底判定(px)
 const JUMP_AT = 52   // 跳底按钮显隐阈值(px)
-const TAU = 1250     // 追赶动画时间常数(ms):验证实验值——典型更新的80%里程约2s(τ·ln5),
-                     // 用于排查"看不到动画"是否因速度过快;稳态滞后≈增长速度v·τ,偏大属实验代价
+const TAU = 600      // 追赶动画时间常数(ms):越大缓动越慢越可感知;日常单条字幕更新(30~60px)
+                     // 约0.7s走完,有明确滚动感;持续流稳态滞后≈增长速度v·τ(约60px)
 const MAX_DT = 50    // 单帧 dt 上限(ms),防后台标签页回前台 k≈1 瞬移
 
 type LaneKey = 'chinese' | 'english'
