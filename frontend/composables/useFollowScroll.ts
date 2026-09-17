@@ -40,6 +40,7 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
   let pendingSync: LaneState | null = null
   let mq: MediaQueryList | null = null
   let mqHandler: ((e: MediaQueryListEvent) => void) | null = null
+  let disposed = false
   // 非响应式闭包变量即可:唯一消费点 followLoop 不参与视图更新(spec 2.1 符号表"响应式"的合理简化)
   let reducedMotion = false
 
@@ -216,9 +217,15 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
     if (lane) resumeFollow(lane)
   }
 
-  onMounted(() => {
+  // 页面由 <ClientOnly> 包裹:插槽内容在父组件 onMounted 之后的重渲染周期才插入 DOM,
+  // 首次 querySelector 必为 null——轮询重试直到两栏容器就位再挂监听/RO(修复 /st 空转)
+  onMounted(() => { initLanes(0) })
+
+  function initLanes(attempt: number) {
+    if (disposed) return
     const keys: LaneKey[] = ['chinese', 'english']
     for (const key of keys) {
+      if (lanes[key]) continue
       const sel = key === 'chinese' ? '.chinese-article.article-display' : '.english-article.article-display'
       const el = document.querySelector(sel) as HTMLElement | null
       if (!el || !el.isConnected) continue
@@ -243,6 +250,13 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
       el.addEventListener('scroll', handleScroll, { passive: true })
       el.addEventListener('wheel', handleWheel, { passive: true })
       lanes[key] = lane
+    }
+
+    const missing = keys.some(key => !lanes[key])
+    if (missing) {
+      if (attempt >= 20) return   // ~2s 仍未就位(异常布局),放弃避免无限轮询
+      setTimeout(() => initLanes(attempt + 1), 100)
+      return
     }
 
     bodyRo = new ResizeObserver(() => {
@@ -278,9 +292,10 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
         ensureLoop(lane)   // 初始跟随:首屏贴底
       }
     }
-  })
+  }
 
   onBeforeUnmount(() => {
+    disposed = true
     for (const key of ['chinese', 'english'] as LaneKey[]) {
       const lane = lanes[key]
       if (!lane) continue
