@@ -51,7 +51,7 @@ python run_server.py --port 9090 --backend tensorrt --trt_model_path "/path/to/t
 ### 完整服务启动
 ```bash
 # 服务化启动：幂等地在 tmux 'livetrans' 会话中运行 run.sh
-# （WSL 启动时由 systemd 用户单元 ~/.config/systemd/user/livetrans.service 自动执行）
+# （开机自动执行：.bashrc 末尾自启块按 boot_id 每开机周期拉起一次，2026-09-17 起替代 systemd 用户单元）
 ./start.sh
 
 # 前台直接跑（调试用）：conda trans 环境，pkill 清残留后 python main.py
@@ -139,6 +139,7 @@ pip install -r requirements/server.txt
 
 ## docs 知识索引
 
+- [livetrans一直重启与Ctrl+C停不下排查](docs/2026-09-17_livetrans一直重启与Ctrl+C停不下排查.md) — 2026-09-17三因叠加(main.py监督循环无限拉起+旧信号处理只等不强杀+tmux服务器段错误全灭)、main.py修复(5s优雅/12s强杀/二连C-c立即/退出兜底清9090)、警示:tmux服务器住livetrans.service cgroup,stop单元=全tmux陪葬,停服务用tmux kill-session
 - [主日值守监控设计](docs/2026-09-14_主日值守监控设计.md) — 2026-09-14 v2定稿: mini侧监控只拉home转录/status单源(转录挂=拉取失败天然可检)+本地字幕流水(globalThis防dev双实例)、宽限+二次确认防误报、真实推流+真实tellme实测矩阵、env配置表、home已生效/mini待部署
 - [缓存命中率82%结构分析与日志时区修复](docs/2026-09-14_缓存命中率82%结构分析与日志时区修复.md) — 2026-09-13命中率82.26%为20轮饱和窗口的结构性稳态(每批append+shift断前缀,每代首条全量重发~1530tok)、本地日志与平台侧分毫对账、docker logs -t恒UTC需+8、[usage]已加ts字段
 - [翻译模型渠道对比与gpt思考缓存实测](docs/2026-09-09_翻译模型渠道对比与gpt思考缓存实测.md) — 2026-09-09定档dss/deepseek-v4-flash试用、gpt-5.6-luna三坑(思考禁不掉/缓存不稳/延迟3~10s)、回切优化路径(prompt_cache_key+CPA源码机制)、网关渠道表
