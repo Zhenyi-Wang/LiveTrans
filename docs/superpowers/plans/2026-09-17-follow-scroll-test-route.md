@@ -1,10 +1,10 @@
-# 自动跟随滚动 v2（/scroll-test 对比测试页）实施计划
+# 自动跟随滚动 v2（/st 对比测试页）实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 按 spec v2 实现全自动跟随滚动（取消手动开关），以**纯新增副本**方式挂在不暴露的测试路由 `/scroll-test` 上，与线上版并存供对比测试。
+**Goal:** 按 spec v2 实现全自动跟随滚动（取消手动开关），以**纯新增副本**方式挂在不暴露的测试路由 `/st` 上，与线上版并存供对比测试。
 
-**Architecture:** 新 composable `useFollowScroll`（scroll 事件三分类协议 + 追赶式缓动 + 联动 rAF 合并器）；三个组件副本（ParagraphDisplayV2/SectionHeaderV2/ContentSectionV2）承载结构改动；`pages/scroll-test.vue` 复用现有数据层（useWebSocket/useParagraphLogic/useFullscreen/useAppConfig）与 AppHeader 组装。**现有文件零改动**，两版路由互不影响。
+**Architecture:** 新 composable `useFollowScroll`（scroll 事件三分类协议 + 追赶式缓动 + 联动 rAF 合并器）；三个组件副本（ParagraphDisplayV2/SectionHeaderV2/ContentSectionV2）承载结构改动；`pages/st.vue` 复用现有数据层（useWebSocket/useParagraphLogic/useFullscreen/useAppConfig）与 AppHeader 组装。**现有文件零改动**，两版路由互不影响。
 
 **Tech Stack:** Nuxt 3 / Vue 3 Composition API / @vueuse/core（现有依赖，无新增）。
 
@@ -530,10 +530,10 @@ defineEmits(['fullscreen', 'font-size-change', 'jump-to-bottom', 'report'])
 
 ---
 
-### Task 5: `pages/scroll-test.vue` 测试页
+### Task 5: `pages/st.vue` 测试页
 
 **Files:**
-- Create: `frontend/pages/scroll-test.vue`（路由 `/scroll-test`，不进任何导航）
+- Create: `frontend/pages/st.vue`（路由 `/st`，不进任何导航）
 
 **Interfaces:**
 - Consumes: `useFollowScroll`（Task 1）、`ContentSectionV2`（Task 4）、现有 `useAppConfig`/`useWebSocket`/`useParagraphLogic`/`useFullscreen`/`LayoutAppHeader`/`ContentSectionDivider`/`CommonReportDialog`。
@@ -543,7 +543,7 @@ defineEmits(['fullscreen', 'font-size-change', 'jump-to-bottom', 'report'])
 
 ```bash
 cp /home/zhenyi/ownprojects/livetrans/frontend/pages/index.vue \
-   /home/zhenyi/ownprojects/livetrans/frontend/pages/scroll-test.vue
+   /home/zhenyi/ownprojects/livetrans/frontend/pages/st.vue
 ```
 
 - [ ] **Step 2: 定点修改（script 部分）**
@@ -552,7 +552,7 @@ cp /home/zhenyi/ownprojects/livetrans/frontend/pages/index.vue \
 2. 新增占位 ref（AppHeader 的 `configAutoScroll` prop 为 required，测试页菜单开关不生效，仅占位）：
 
 ```js
-// /scroll-test 对比测试页:自动滚动开关占位(新机制无开关),菜单里点击无效属预期
+// /st 对比测试页:自动滚动开关占位(新机制无开关),菜单里点击无效属预期
 const placeholderAutoScroll = ref(true)
 ```
 
@@ -601,14 +601,14 @@ Expected: 构建成功无错误。若失败：修复后重跑直至通过（常�
 
 - [ ] **Step 2: 路由可达性冒烟（dev 模式可选）**
 
-Run: `cd /home/zhenyi/ownprojects/livetrans/frontend && yarn dev` 后浏览器开 `http://localhost:3000/scroll-test`
+Run: `cd /home/zhenyi/ownprojects/livetrans/frontend && yarn dev` 后浏览器开 `http://localhost:3000/st`
 Expected: 页面渲染与 `/` 视觉一致（含暗色主题）；浏览器 console 无 `useFollowScroll`/`ContentSectionV2` 相关报错；`http://localhost:3000/` 行为与改动前完全一致（零改动验证）。验证完停掉 dev。
 
 - [ ] **Step 3: 输出手动验收清单与偏差明细（交付物注释，不阻塞）**
 
 在完成报告中附两份内容：
 1. spec 第五节 20 条验收清单，标注"待用户在真实直播流/dev mock 下执行"——本计划不含自动化验收（无测试基建），手动验收是用户审核的一部分。
-2. **副本策略 vs spec 三节的偏差明细**（供用户审核对照）：保留项——`useScrollSync.ts` 未删、原四组件未改、AppHeader"自动滚动"菜单项仍在（测试页点击无效）、`configAutoScroll` 在 `/` 页仍可写 localStorage、`faArrowDown`/`.auto-scroll-btn` 样式在 V2 中保留复用；新增项——`useFollowScroll.ts`、三个 `*V2.vue`、`pages/scroll-test.vue`。
+2. **副本策略 vs spec 三节的偏差明细**（供用户审核对照）：保留项——`useScrollSync.ts` 未删、原四组件未改、AppHeader"自动滚动"菜单项仍在（测试页点击无效）、`configAutoScroll` 在 `/` 页仍可写 localStorage、`faArrowDown`/`.auto-scroll-btn` 样式在 V2 中保留复用；新增项——`useFollowScroll.ts`、三个 `*V2.vue`、`pages/st.vue`。
 
 ---
 
