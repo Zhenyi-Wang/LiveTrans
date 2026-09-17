@@ -37,6 +37,9 @@ const { getChineseParagraphs, getEnglishParagraphs } = useParagraphLogic(
 
 const { showJumpCn, showJumpEn, jumpToBottom } = useFollowScroll(configSyncScroll)
 
+// demo 数据开关:本地模拟直播流,无需真实推流(仅本测试页)
+const { demoOn, toggleDemo } = useDemoFeed(currentSegment, lastCurrentEn, confirmedSegments)
+
 const {
   isChineseFullscreen,
   isEnglishFullscreen,
@@ -128,6 +131,11 @@ const openReport = () => {
 
       <!-- 报错反馈弹窗 -->
       <CommonReportDialog :visible="showReport" @close="showReport = false" />
+
+      <!-- demo 数据开关(仅本测试页):模拟直播流,无需真实推流;开启时会与真实数据叠加,测试用 -->
+      <button class="demo-toggle" :class="{ on: demoOn }" @click="toggleDemo()">
+        {{ demoOn ? '● DEMO ON' : 'DEMO' }}
+      </button>
     </div>
   </ClientOnly>
 </template>
@@ -1063,5 +1071,34 @@ input:checked + .slider:hover {
   .welcome-message {
     padding: 20px 10px;
   }
+}
+
+/* demo 数据开关(仅本测试页) */
+.demo-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 999;
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 2px solid var(--border-color, #e2e8f0);
+  background: var(--bg-color, #ffffff);
+  color: var(--text-color, #2c3e50);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+}
+
+.demo-toggle:hover {
+  transform: scale(1.05);
+}
+
+.demo-toggle.on {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 4px 16px rgba(249, 115, 22, 0.4);
 }
 </style>
