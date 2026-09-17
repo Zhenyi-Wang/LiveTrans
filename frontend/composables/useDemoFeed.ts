@@ -59,11 +59,12 @@ export function useDemoFeed(
     const confirm = () => {
       currentSegment.value = { text: '' }
       lastCurrentEn.value = ''
-      confirmedSegments.value.push({ id, text: s.zh })   // 先无 en_text(英文栏显示 translating…)
+      // 句尾带空格:与原版 ASR 文本一致,段落内多句拼接时句间有空格分隔
+      confirmedSegments.value.push({ id, text: s.zh + ' ' })   // 先无 en_text(英文栏显示 translating…)
       schedule(() => {
         // 翻译回填:走 update 原地替换,与真实矫正/翻译链路同构
         const i = confirmedSegments.value.findLastIndex(x => x.id === id)
-        if (i >= 0) confirmedSegments.value[i] = { id, text: s.zh, en_text: s.en, opti_text: s.zh }
+        if (i >= 0) confirmedSegments.value[i] = { id, text: s.zh + ' ', en_text: s.en + ' ', opti_text: s.zh + ' ' }
         schedule(playSentence, rand(500, 1500))
       }, rand(800, 2000))
     }

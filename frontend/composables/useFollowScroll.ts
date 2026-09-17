@@ -99,12 +99,22 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
     if (e.deltaY < 0) cancelLoop(lane)
   }
 
-  function resumeFollow(lane: LaneState) {
+  function resumeFollowLocal(lane: LaneState) {
     lane.isFollowing = true
     lane.userDrift = 0
     lane.lastWritten = Math.min(Math.max(lane.el.scrollTop, 0), maxTopOf(lane))
     ensureLoop(lane)
     updateJumpBtn(lane, maxTopOf(lane) - lane.lastWritten)
+  }
+
+  // 恢复与停止对称:联动开启时一栏贴底自愈,另一栏一并恢复并追赶贴底——
+  // 否则被联动拖离底部的栏没有任何恢复路径(spec v2.4 的单栏恢复仅在联动关闭时成立)
+  function resumeFollow(source: LaneState) {
+    resumeFollowLocal(source)
+    if (configSyncScroll.value) {
+      const peer = other(source)
+      if (peer && !peer.isFollowing) resumeFollowLocal(peer)
+    }
   }
 
   function stopFollowLocal(lane: LaneState) {
