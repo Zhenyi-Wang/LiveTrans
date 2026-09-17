@@ -8,8 +8,8 @@ const EPS = 1        // 程序写入自身事件的噪声容差(px)
 const DRIFT = 8      // 向上累计介入阈值(px)
 const BOTTOM = 1     // 贴底判定(px)
 const JUMP_AT = 52   // 跳底按钮显隐阈值(px)
-const TAU = 600      // 追赶动画时间常数(ms):越大缓动越慢越可感知;300ms对日常小更新(30~60px)
-                     // 约0.2s走完近似瞬移,600ms约0.7s有明确滚动感;持续流稳态滞后≈增长速度v·τ
+const TAU = 1250     // 追赶动画时间常数(ms):验证实验值——典型更新的80%里程约2s(τ·ln5),
+                     // 用于排查"看不到动画"是否因速度过快;稳态滞后≈增长速度v·τ,偏大属实验代价
 const MAX_DT = 50    // 单帧 dt 上限(ms),防后台标签页回前台 k≈1 瞬移
 
 type LaneKey = 'chinese' | 'english'
@@ -39,11 +39,9 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
   let boxRo: ResizeObserver | null = null
   let syncRaf: number | null = null
   let pendingSync: LaneState | null = null
-  let mq: MediaQueryList | null = null
-  let mqHandler: ((e: MediaQueryListEvent) => void) | null = null
   let disposed = false
-  // 非响应式闭包变量即可:唯一消费点 followLoop 不参与视图更新(spec 2.1 符号表"响应式"的合理简化)
-  let reducedMotion = false
+  // 注:不做 prefers-reduced-motion 瞬移分支——实测开发者/用户环境(Edge 关闭动画设置)
+  // 会命中系统 reduce,导致"永远瞬移无动画"且排查困难;直播展示页场景放弃该无障碍特性
 
   const other = (lane: LaneState) => lanes[lane.key === 'chinese' ? 'english' : 'chinese']
   const showJumpOf = (key: LaneKey) => (key === 'chinese' ? showJumpCn : showJumpEn)
@@ -155,11 +153,7 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
       lane.raf = null
       return
     }
-    if (reducedMotion) {
-      programmaticScrollTo(lane, target)       // 独立分支,不参与除法
-    } else {
-      programmaticScrollTo(lane, el.scrollTop + dist * (1 - Math.exp(-dt / TAU)))
-    }
+    programmaticScrollTo(lane, el.scrollTop + dist * (1 - Math.exp(-dt / TAU)))
     lane.raf = requestAnimationFrame(t2 => followLoop(lane, t2))
   }
 
@@ -291,11 +285,6 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
       boxRo.observe(lane.el)
     }
 
-    mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    reducedMotion = mq.matches
-    mqHandler = (e: MediaQueryListEvent) => { reducedMotion = e.matches }
-    mq.addEventListener('change', mqHandler)
-
     for (const key of keys) {
       const lane = lanes[key]
       if (lane) {
@@ -317,7 +306,6 @@ export function useFollowScroll(configSyncScroll: Ref<boolean>) {
     bodyRo?.disconnect()
     boxRo?.disconnect()
     if (syncRaf !== null) cancelAnimationFrame(syncRaf)
-    if (mq && mqHandler) mq.removeEventListener('change', mqHandler)
   })
 
   return { showJumpCn, showJumpEn, jumpToBottom }
