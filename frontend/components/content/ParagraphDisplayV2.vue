@@ -36,9 +36,10 @@
                   'has-translation': segment.hasContent
                 }"
               >
-                <span v-if="segment.hasContent" class="translation-content">{{ segment.text }} </span>
-                <span v-if="segment.isTranslating" class="translating-dots">... </span>
-                <span v-if="segment.hasContent && segIndex < paragraph.length - 1"> </span>
+                <span v-if="segment.hasContent" class="translation-content">{{ segment.text }}</span>
+                <span v-if="segment.isTranslating" class="translating-dots">...</span>
+                <!-- segment间空格:Vue condense会删掉静态空白节点,必须用插值显式输出 -->
+                <span v-if="segment.hasContent && segIndex < paragraph.length - 1">{{ ' ' }}</span>
               </span>
             </template>
           </template>
