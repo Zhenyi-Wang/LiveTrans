@@ -1,5 +1,8 @@
 <script setup>
-// Font Awesome 图标在子组件中使用
+// 自动跟随滚动 v2 正式页（2026-09-20 由 /st 测试页转正；旧版移至 /old 对照）
+// demo 数据流:环境变量 NUXT_DEMO_FEED=1 时自动开启(仅 dev 按需使用,生产无痕迹),无界面入口
+// 新机制 useFollowScroll: 几何自愈 + 位移确认 + 追赶缓动，spec 见 docs/2026-09-16_自动跟随滚动重构spec_取消手动开关.md
+// 与 / 并存：本页仅用 V2 副本组件，现有文件零改动
 
 // 引入composables
 const {
@@ -7,8 +10,6 @@ const {
   toggleDark,
   showMenu,
   toggleMenu,
-  configAutoScroll,
-  toggleAutoScroll,
   configShowText,
   configShowTextEn,
   configSyncScroll,
@@ -19,30 +20,30 @@ const {
   cssVariables
 } = useAppConfig()
 
+// AppHeader 的"自动滚动"开关在本页不生效（新机制无手动开关），仅占位满足 required prop
+const placeholderAutoScroll = ref(true)
+
 const {
   wsConnected,
   currentSegment,
   lastCurrentEn,
   confirmedSegments,
   isWaitingForService
-} = useWebSocket(() => {
-  // WebSocket 初始化完成后的回调
-  if (configAutoScroll.value) {
-    scrollToBottom()
-  }
-})
+} = useWebSocket()
 
 const { getChineseParagraphs, getEnglishParagraphs } = useParagraphLogic(
   confirmedSegments,
   computed(() => configParagraphLength.value)
 )
 
-const {
-  onChineseScroll,
-  onEnglishScroll,
-  scrollToBottom,
-  watchDataAndScroll
-} = useScrollSync(configSyncScroll, configAutoScroll)
+const { showJumpCn, showJumpEn, jumpToBottom } = useFollowScroll(configSyncScroll)
+
+// demo 数据流:环境变量 NUXT_DEMO_FEED=1 时自动开启(仅 dev 按需使用,生产无痕迹),无界面入口
+const { toggleDemo } = useDemoFeed(currentSegment, lastCurrentEn, confirmedSegments)
+const { demoFeed } = useRuntimeConfig().public
+onMounted(() => {
+  if (demoFeed) toggleDemo()
+})
 
 const {
   isChineseFullscreen,
@@ -55,9 +56,6 @@ const {
   toggleChineseFullscreen,
   toggleEnglishFullscreen
 } = useFullscreen()
-
-// 监听数据变化并自动滚动
-watchDataAndScroll(currentSegment, confirmedSegments)
 
 // 报错反馈弹窗(三入口共用: header按钮/菜单末项/欢迎词)
 const showReport = ref(false)
@@ -75,7 +73,7 @@ const openReport = () => {
         :ws-connected="wsConnected"
         :show-menu="showMenu"
         :is-dark="isDark"
-        :config-auto-scroll="configAutoScroll"
+        :config-auto-scroll="placeholderAutoScroll"
         :config-sync-scroll="configSyncScroll"
         :config-paragraph-length="configParagraphLength"
         :config-chinese-font-size="configChineseFontSize"
@@ -85,9 +83,7 @@ const openReport = () => {
         @toggle-menu="toggleMenu"
         @report="openReport"
         @toggle-dark="toggleDark"
-        @toggle-auto-scroll="toggleAutoScroll"
         @toggle-sync-scroll="toggleSyncScroll"
-        @scroll-to-bottom="scrollToBottom"
         @update:config-paragraph-length="configParagraphLength = $event"
         @update:config-chinese-font-size="configChineseFontSize = $event"
         @update:config-english-font-size="configEnglishFontSize = $event"
@@ -97,7 +93,7 @@ const openReport = () => {
 
       <div class="content-container">
         <!-- 中文内容区域 -->
-        <ContentSection
+        <ContentSectionV2
         language="chinese"
         title="中文 | Chinese"
         :paragraphs="getChineseParagraphs"
@@ -108,20 +104,18 @@ const openReport = () => {
         :is-fullscreen="isChineseFullscreen"
         :is-waiting-for-service="isWaitingForService"
         :last-current-en="lastCurrentEn"
-        :auto-scroll="configAutoScroll"
+        :show-jump="showJumpCn"
         @report="openReport"
         @fullscreen="toggleChineseFullscreen"
         @font-size-change="configChineseFontSize = $event"
-        @scroll="onChineseScroll"
-        @toggle-auto-scroll="toggleAutoScroll"
-        @scroll-to-bottom="scrollToBottom"
+        @jump-to-bottom="jumpToBottom('chinese')"
       />
 
       <!-- 分隔线 -->
       <ContentSectionDivider :divider-classes="getDividerClasses" />
 
       <!-- 英文内容区域 -->
-      <ContentSection
+      <ContentSectionV2
         language="english"
         title="English"
         :paragraphs="getEnglishParagraphs"
@@ -132,13 +126,11 @@ const openReport = () => {
         :is-fullscreen="isEnglishFullscreen"
         :is-waiting-for-service="isWaitingForService"
         :last-current-en="lastCurrentEn"
-        :auto-scroll="configAutoScroll"
+        :show-jump="showJumpEn"
         @report="openReport"
         @fullscreen="toggleEnglishFullscreen"
         @font-size-change="configEnglishFontSize = $event"
-        @scroll="onEnglishScroll"
-        @toggle-auto-scroll="toggleAutoScroll"
-        @scroll-to-bottom="scrollToBottom"
+        @jump-to-bottom="jumpToBottom('english')"
       />
       </div>
 
