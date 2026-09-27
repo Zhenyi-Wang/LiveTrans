@@ -139,6 +139,7 @@ pip install -r requirements/server.txt
 
 ## docs 知识索引
 
+- [主日值守误报：本地遗留容器复活监控](docs/2026-09-27_主日值守误报_本地遗留容器复活监控.md) — 2026-09-27告警真凶=home本机2024年遗留livetrans容器(挂载.output+restart=always),本地yarn build污染挂载卷+容器重启加载新代码→监控在本地复活每主日误报(dispatch发mini,本地lastAt恒0);mini生产监控判断全对;教训:本地build污染挂载容器/遗留容器是定时炸弹/告警先查"谁发的"
 - [livetrans一直重启与Ctrl+C停不下排查](docs/2026-09-17_livetrans一直重启与Ctrl+C停不下排查.md) — 2026-09-17三因叠加(main.py监督循环无限拉起+旧信号处理只等不强杀+tmux服务器段错误全灭)、main.py修复(5s优雅/12s强杀/二连C-c立即/退出兜底清9090)、警示:tmux服务器住livetrans.service cgroup,stop单元=全tmux陪葬,停服务用tmux kill-session
 - [主日值守监控设计](docs/2026-09-14_主日值守监控设计.md) — 2026-09-14 v2定稿: mini侧监控只拉home转录/status单源(转录挂=拉取失败天然可检)+本地字幕流水(globalThis防dev双实例)、宽限+二次确认防误报、真实推流+真实tellme实测矩阵、env配置表、home已生效/mini待部署
 - [缓存命中率82%结构分析与日志时区修复](docs/2026-09-14_缓存命中率82%结构分析与日志时区修复.md) — 2026-09-13命中率82.26%为20轮饱和窗口的结构性稳态(每批append+shift断前缀,每代首条全量重发~1530tok)、本地日志与平台侧分毫对账、docker logs -t恒UTC需+8、[usage]已加ts字段
