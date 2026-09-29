@@ -5,3 +5,5 @@ models
 REFACTOR_REPORT.md
 server.log
 .playwright-mcp/
+
+pause_state.json

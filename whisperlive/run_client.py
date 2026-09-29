@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from whisper_live.client import TranscriptionClient
@@ -27,19 +28,50 @@ def start_status_server(tee):
         return
 
     class Handler(BaseHTTPRequestHandler):
+        def _send_json(self, code, obj):
+            body = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
             if self.path != "/status":
                 self.send_error(404)
                 return
             try:
-                body = json.dumps(tee.status_snapshot()).encode()
+                self._send_json(200, tee.status_snapshot())
             except Exception as e:
-                body = json.dumps({"ok": False, "error": repr(e)}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+                self._send_json(200, {"ok": False, "error": repr(e)})
+
+        def do_POST(self):
+            # 暂停/恢复控制入口(参数走 query string, .bat/curl 最简); body 读取丢弃防 keep-alive 挂起。
+            # 不加鉴权: 暴露面与 /status 相同(LAN+WG 可信网络)
+            parsed = urllib.parse.urlparse(self.path)
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length:
+                self.rfile.read(length)
+            try:
+                if parsed.path == "/pause":
+                    params = urllib.parse.parse_qs(parsed.query)
+                    hours = float(params.get("hours", ["2"])[0])  # 无参默认 2h, 支持小数
+                    resume_at = tee.pause(hours)
+                    self._send_json(200, {
+                        "ok": True,
+                        "paused": True,
+                        "resume_at": int(resume_at * 1000),
+                        "resume_at_iso": tee._fmt_resume(),
+                    })
+                elif parsed.path == "/resume":
+                    tee.resume()  # 幂等: 未暂停时调用无害
+                    self._send_json(200, {"ok": True, "paused": False})
+                else:
+                    self._send_json(404, {"ok": False, "error": "not found"})
+            except ValueError as e:  # hours 非数字/超范围
+                self._send_json(400, {"ok": False, "error": str(e)})
+            except Exception as e:
+                self._send_json(500, {"ok": False, "error": repr(e)})
 
         def log_message(self, *args):
             pass  # 监控高频轮询, 不刷日志
