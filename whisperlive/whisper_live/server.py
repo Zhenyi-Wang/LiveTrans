@@ -1179,6 +1179,7 @@ class ServeClientFasterWhisper(ServeClientBase):
                 continue
 
             if self.frames_np is None:
+                time.sleep(0.05)  # 无音频帧时休眠等待，避免忙等空转烧满单核
                 continue
 
             # 新算法
