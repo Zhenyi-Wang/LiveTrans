@@ -55,7 +55,8 @@ export function buildMonitorConfig(rc: Record<string, any>): MonitorConfig {
     // 字幕取本进程流水(pipelineStatus), 不依赖其他服务
     transcribeApi: String(rc.monitorTranscribeApi || 'http://192.168.123.16:9091/status'),
     webhook: String(rc.tellmeWebhook || DEFAULT_TELLME_WEBHOOK),
-    dryRun: rc.monitorDryRun === true || rc.monitorDryRun === 'true' || rc.monitorDryRun === '1',
+    // Nuxt 运行时 env 覆盖经 destr 反序列化: NUXT_MONITOR_DRY_RUN=1 会变成数字 1 而非字符串 '1'
+    dryRun: rc.monitorDryRun === true || rc.monitorDryRun === 'true' || Number(rc.monitorDryRun) === 1,
   }
 }
 
