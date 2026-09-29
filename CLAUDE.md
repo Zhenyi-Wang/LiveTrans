@@ -139,6 +139,7 @@ pip install -r requirements/server.txt
 
 ## docs 知识索引
 
+- [whisperlive空转CPU100%排查](docs/2026-09-29_whisperlive空转CPU100%排查_忙等与流僵死盲区.md) — 2026-09-29两层根因:server转录线程frames_np=None裸continue忙等(魔改重写丢了上游sleep)+client断流检测只认EOF挂起态盲区(60s无数据模拟EOF走重连);教训:常驻服务无输入路径必须sleep、读超时兜底必须
 - [暂停N小时释放GPU设计](docs/2026-09-29_暂停N小时释放GPU设计.md) — 2026-09-29 POST /pause?hours=N 挂9091端口,暂停=断WS+杀server零显存,落盘崩溃可恢复;拦截点必须在TranscriptionClient.__init__(构造即连WS即加载模型);顺手修两个存量bug(TeeClient init抹掉_server_process句柄致断流90min释放GPU失效已久、MONITOR_DRY_RUN=1的destr数字坑);mryk无直达home路径的现状注记
 
 - [主日值守误报：本地遗留容器复活监控](docs/2026-09-27_主日值守误报_本地遗留容器复活监控.md) — 2026-09-27告警真凶=home本机2024年遗留livetrans容器(挂载.output+restart=always),本地yarn build污染挂载卷+容器重启加载新代码→监控在本地复活每主日误报(dispatch发mini,本地lastAt恒0);mini生产监控判断全对;教训:本地build污染挂载容器/遗留容器是定时炸弹/告警先查"谁发的"
