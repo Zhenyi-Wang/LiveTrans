@@ -794,6 +794,9 @@ class TranscriptionTeeClient:
         reconnect_count = 0  # 重连次数计数
         prev_retry_delay = retry_delay  # 用于检测退避变化
         audio_packet_count = 0  # 已发送的音频包计数
+        no_data_timeout = 60  # stdout 无数据超时：连接僵死(ffmpeg活着但不吐数据)时强制走断流重连
+        last_data_time = time.monotonic()  # monotonic: 不受系统校时影响
+        half_sample_buf = b""  # 跨轮次半样本缓存: read1 可能返回奇数字节, 拼到下轮头部保证 16bit 对齐
 
         try:
             while True:
@@ -829,12 +832,15 @@ class TranscriptionTeeClient:
                     self.start_server()
                     self.reconnect_clients()
                     process = create_process_func()
+                    last_data_time = time.monotonic()  # 重置无数据计时: 暂停等待期可达数小时, 不重置会立刻误判
+                    half_sample_buf = b""
                     self.stop_stderr.clear()
                     self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
                     self.stderr_thread.start()
                     print(f"[{Client.ts()}] [PAUSE] 已恢复 (ffmpeg pid={process.pid})")
                 # 用 select 轮询，避免阻塞 read() 导致无法响应 Ctrl+C
                 data_ready = False
+                no_data_timeout_hit = False
                 while True:
                     ready, _, _ = select.select([process.stdout], [], [], 0.5)
                     if ready:
@@ -842,9 +848,30 @@ class TranscriptionTeeClient:
                         break
                     if self.paused:  # 等数据期间暂停生效: 回外层顶部暂停块接管(ffmpeg 无输出也能停)
                         break
-                if not data_ready:
+                    if time.monotonic() - last_data_time > no_data_timeout:
+                        # 连接僵死: ffmpeg 未退出但持续无数据(如对端挂起不响应),
+                        # EOF 永远不会到来、断流检测失效 -> 模拟 EOF 强制走重连路径
+                        no_data_timeout_hit = True
+                        break
+                if no_data_timeout_hit:
+                    print(f"[{Client.ts()}] [STREAM] {stream_type} stream no data for {no_data_timeout}s (ffmpeg hung), forcing reconnect")
+                    in_bytes = b""  # 模拟 EOF, 走下方断流重连路径
+                elif not data_ready:
                     continue
-                in_bytes = process.stdout.read(self.chunk * 2)  # 2 bytes per sample
+                else:
+                    # read1: 有多少读多少, 不等待填满——read(n) 会阻塞到读满 n 字节,
+                    # 流"吐部分数据后挂起"时同样会绕过无数据超时
+                    raw = process.stdout.read1(self.chunk * 2)
+                    if not raw:
+                        in_bytes = b""  # 真 EOF: read1 返回空 = 流关闭
+                    else:
+                        last_data_time = time.monotonic()
+                        data = half_sample_buf + raw
+                        rem = len(data) % 2  # 半样本(奇数字节)留到下轮, 保证 16bit 采样对齐
+                        half_sample_buf = data[len(data) - rem:] if rem else b""
+                        in_bytes = data[: len(data) - rem]
+                        if not in_bytes:
+                            continue  # 本轮只凑出半样本, 不构成断流
 
                 if not in_bytes:
                     # 流断开，尝试重连
@@ -895,6 +922,8 @@ class TranscriptionTeeClient:
 
                     # 重新创建 ffmpeg 进程
                     process = create_process_func()
+                    last_data_time = time.monotonic()  # 重置无数据计时, 给新进程连接时间
+                    half_sample_buf = b""  # 旧进程残余字节不拼到新进程数据上
                     self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
                     self.stderr_thread.start()
                     continue
