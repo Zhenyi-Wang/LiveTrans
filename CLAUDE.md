@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### 主要组件
 - **frontend/** - Nuxt 3前端应用，提供实时翻译显示界面
 - **whisperlive/** - WhisperLive语音识别服务，基于OpenAI Whisper模型
-- **main.py** - 监督进程：崩溃后退避重启 run_client（5s→60s 指数退避）
+- **main.py** - 主服务进程管理脚本，监控GPU状态并自动重启服务
 
 ### 前端架构 (frontend/)
 - 使用Nuxt 3框架构建
@@ -100,7 +100,7 @@ pip install -r requirements/server.txt
 - 默认主日（周日）07:40-09:25：开始时间+宽限(180s)后检查 转录可达/音频三态/字幕（最近30分钟回看），异常持续 60s 二次确认后经 tellme webhook 真实通知；结束时间+宽限(120s)后仍在直播则通知
 - 架构：**mini 只拉 home 转录 `/status` 一个数据源**（run_client.py :9091 暴露流三态+WS+uptime，转录挂=拉取失败天然可检）；字幕读本进程 pipelineStatus（listen.ts 埋点，state 挂 globalThis 防 dev 模块双实例分裂）；值守是一次性通知，不做多源二次诊断
 - 防误报：默认仅周日、宽限期只观察、二次确认、每检查点当天只通知一次；结束时转录不可达则不重复通知（开始检查已报过）
-- env 见 [docs/2026-09-14_主日值守监控设计.md](docs/2026-09-14_主日值守监控设计.md)（`MONITOR_*` mini 侧 / `LIVETRANS_STATUS_PORT` 等 home 侧；`MONITOR_DRY_RUN=1` 测试不发送——运行时覆盖须用 `NUXT_MONITOR_DRY_RUN` 且 `=1/=true` 均可，2026-09-29 修过 destr 数字坑）；转录暂停中告警文案区分（"⏸️ 已暂停（预计 X 恢复）"），暂停穿主日照常通知；home 检查端口已生效（2026-09-14 重启），mini 侧 sync-mini.sh 部署即激活（`MONITOR_ENABLED=0` 关闭）
+- env 见 [docs/2026-09-14_主日值守监控设计.md](docs/2026-09-14_主日值守监控设计.md)（`MONITOR_*` mini 侧 / `LIVETRANS_STATUS_PORT` 等 home 侧；`MONITOR_DRY_RUN=1` 测试不发送）；home 检查端口已生效（2026-09-14 重启），mini 侧 sync-mini.sh 部署即激活（`MONITOR_ENABLED=0` 关闭）
 
 ### 部署（mini）
 - `sync-mini.sh`：build → rsync（.env/docker-compose/.output）→ `docker compose up -d --force-recreate`
@@ -119,10 +119,10 @@ pip install -r requirements/server.txt
 - WebSocket端口默认为9090
 - 支持实时语音转文字结果传输
 
-### GPU 释放机制
-- **断流自动**：流断开 90 分钟后自动停 server 进程释放显存（`handle_ffmpeg_process` 断流分支），流恢复自动重建
-- **手动暂停**：`POST /pause?hours=N` / `POST /resume`（挂 :9091 检查端口，LAN/WG/Windows 桌面 bat 均可发起）；暂停=断WS+杀server+杀ffmpeg（零显存），到期自动重建；暂停态落盘 `pause_state.json` 崩溃重启不丢。设计/实测/两个顺手修复的存量 bug 见 [docs/2026-09-29_暂停N小时释放GPU设计.md](docs/2026-09-29_暂停N小时释放GPU设计.md)
-- main.py 无 GPU 监控逻辑（旧 P8 检测已在 2026-05 重写时移除），只做崩溃退避重启
+### GPU监控
+- main.py包含GPU状态监控功能
+- 当GPU进入P8状态时会自动重启服务
+- 监控间隔为5秒，P8连续检测阈值默认为3次
 
 ### 前端组件结构
 - `components/content/` - 内容显示相关组件
@@ -140,8 +140,6 @@ pip install -r requirements/server.txt
 ## docs 知识索引
 
 - [whisperlive空转CPU100%排查](docs/2026-09-29_whisperlive空转CPU100%排查_忙等与流僵死盲区.md) — 2026-09-29两层根因:server转录线程frames_np=None裸continue忙等(魔改重写丢了上游sleep)+client断流检测只认EOF挂起态盲区(60s无数据模拟EOF走重连);教训:常驻服务无输入路径必须sleep、读超时兜底必须
-- [暂停N小时释放GPU设计](docs/2026-09-29_暂停N小时释放GPU设计.md) — 2026-09-29 POST /pause?hours=N 挂9091端口,暂停=断WS+杀server零显存,落盘崩溃可恢复;拦截点必须在TranscriptionClient.__init__(构造即连WS即加载模型);顺手修两个存量bug(TeeClient init抹掉_server_process句柄致断流90min释放GPU失效已久、MONITOR_DRY_RUN=1的destr数字坑);mryk无直达home路径的现状注记
-
 - [主日值守误报：本地遗留容器复活监控](docs/2026-09-27_主日值守误报_本地遗留容器复活监控.md) — 2026-09-27告警真凶=home本机2024年遗留livetrans容器(挂载.output+restart=always),本地yarn build污染挂载卷+容器重启加载新代码→监控在本地复活每主日误报(dispatch发mini,本地lastAt恒0);mini生产监控判断全对;教训:本地build污染挂载容器/遗留容器是定时炸弹/告警先查"谁发的"
 - [livetrans一直重启与Ctrl+C停不下排查](docs/2026-09-17_livetrans一直重启与Ctrl+C停不下排查.md) — 2026-09-17三因叠加(main.py监督循环无限拉起+旧信号处理只等不强杀+tmux服务器段错误全灭)、main.py修复(5s优雅/12s强杀/二连C-c立即/退出兜底清9090)、警示:tmux服务器住livetrans.service cgroup,stop单元=全tmux陪葬,停服务用tmux kill-session
 - [主日值守监控设计](docs/2026-09-14_主日值守监控设计.md) — 2026-09-14 v2定稿: mini侧监控只拉home转录/status单源(转录挂=拉取失败天然可检)+本地字幕流水(globalThis防dev双实例)、宽限+二次确认防误报、真实推流+真实tellme实测矩阵、env配置表、home已生效/mini待部署
