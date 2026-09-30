@@ -1182,163 +1182,109 @@ class ServeClientFasterWhisper(ServeClientBase):
                 time.sleep(0.05)  # 无音频帧时休眠等待，避免忙等空转烧满单核
                 continue
 
-            # 新算法
-            if True:
 
-                samples_take = max(
-                    0, (self.timestamp_offset - self.frames_offset) * self.RATE
-                )
-                input_bytes = self.frames_np[int(samples_take) :].copy()
-                duration = input_bytes.shape[0] / self.RATE
-                print("-" * 30)
-                print(f"Runtime: {self.get_runtime()}s")
-                print(f"[DEBUG process_loop] samples_take={samples_take}, duration={duration:.1f}s, t_off={self.timestamp_offset:.1f}, f_off={self.frames_offset:.1f}, buffer_size={self.frames_np.shape[0]/self.RATE:.1f}s")
+            samples_take = max(
+                0, (self.timestamp_offset - self.frames_offset) * self.RATE
+            )
+            input_bytes = self.frames_np[int(samples_take) :].copy()
+            duration = input_bytes.shape[0] / self.RATE
+            print("-" * 30)
+            print(f"Runtime: {self.get_runtime()}s")
+            print(f"[DEBUG process_loop] samples_take={samples_take}, duration={duration:.1f}s, t_off={self.timestamp_offset:.1f}, f_off={self.frames_offset:.1f}, buffer_size={self.frames_np.shape[0]/self.RATE:.1f}s")
 
-                if all(
-                    [
-                        last_trans_params["t_off"] == self.timestamp_offset,
-                        last_trans_params["duration"] + min_re_transcribe_thres
-                        > duration,
-                    ]
-                ):
-                    print(
-                        f"[DEBUG SKIP] re-transcribe check passed: t_off unchanged ({last_trans_params['t_off']:.1f}), duration={duration:.1f}s < last_dur+{min_re_transcribe_thres}"
-                    )
-                    time.sleep(min_duration_sleep_time)
-                    continue
-
-                if duration < min_duration_to_process:
-                    print(
-                        f"[DEBUG SKIP] duration {duration:.1f}s < min_duration {min_duration_to_process}s"
-                    )
-                    time.sleep(min_duration_sleep_time)
-                    continue
-
-                # if buffer size exceeds max_buffer_size, discard oldest data
-                if duration > max_buffer_size:
-                    trim = duration - max_buffer_size
-                    self.timestamp_offset += trim
-                    duration -= trim
-                    input_bytes = input_bytes[int(trim * self.RATE) :]
-                    print(
-                        f"[DEBUG trim] duration {duration+trim:.1f}s > max_buffer {max_buffer_size}s, trim {trim:.1f}s"
-                    )
-
+            if all(
+                [
+                    last_trans_params["t_off"] == self.timestamp_offset,
+                    last_trans_params["duration"] + min_re_transcribe_thres
+                    > duration,
+                ]
+            ):
                 print(
-                    f"[DEBUG TRANSCRIBE] Calling whisper with duration={duration:.1f}s, t_off={self.timestamp_offset:.1f}s, f_off={self.frames_offset:.1f}s, buffer_size={self.frames_np.shape[0] / self.RATE:.1f}s"
+                    f"[DEBUG SKIP] re-transcribe check passed: t_off unchanged ({last_trans_params['t_off']:.1f}), duration={duration:.1f}s < last_dur+{min_re_transcribe_thres}"
                 )
-                # try:
-                if True:
-                    start_time = time.time()
-                    result = self.transcribe_audio(input_bytes)
-                    last_trans_params = {
-                        "b_size": self.frames_np.shape[0] / self.RATE,
-                        "t_off": self.timestamp_offset,
-                        "f_off": self.frames_offset,
-                        "duration": duration,
-                    }
+                time.sleep(min_duration_sleep_time)
+                continue
 
-                    print("[DEBUG result] whisper returned, result_count={}, t_off={:.1f}s".format(
-                        len(result) if result is not None else "None", self.timestamp_offset))
-                    if result is not None:
-                        for i, s in enumerate(result):
-                            print(f"      segment[{i}]: start={s.start:.2f}s, end={s.end:.2f}s, text={s.text[:50] if s.text else 'empty'}")
-                    print("Saved last_trans_params", last_trans_params)
-                    print(
-                        "duration:",
-                        duration,
-                        "transcribe time:",
-                        time.time() - start_time,
-                        "ratio:",
-                        duration / (time.time() - start_time),
-                        "result len:",
-                        len(result) if result is not None else "None",
-                    )
-                    if result is None or self.language is None:
-                        self.timestamp_offset += duration
-                        print(
-                            f"[DEBUG no_speech] No speech detected, advancing timestamp_offset by {duration:.1f}s -> {self.timestamp_offset:.1f}s"
-                        )
-                        time.sleep(
-                            empty_result_sleep_time
-                        )  # wait for voice activity, result is None when no voice activity
-                        continue
+            if duration < min_duration_to_process:
+                print(
+                    f"[DEBUG SKIP] duration {duration:.1f}s < min_duration {min_duration_to_process}s"
+                )
+                time.sleep(min_duration_sleep_time)
+                continue
 
-                    for s in result:
-                        print("    ", s.start, s.end, s.no_speech_prob, s.text)
+            # if buffer size exceeds max_buffer_size, discard oldest data
+            if duration > max_buffer_size:
+                trim = duration - max_buffer_size
+                self.timestamp_offset += trim
+                duration -= trim
+                input_bytes = input_bytes[int(trim * self.RATE) :]
+                print(
+                    f"[DEBUG trim] duration {duration+trim:.1f}s > max_buffer {max_buffer_size}s, trim {trim:.1f}s"
+                )
 
-                    # return segments
+            print(
+                f"[DEBUG TRANSCRIBE] Calling whisper with duration={duration:.1f}s, t_off={self.timestamp_offset:.1f}s, f_off={self.frames_offset:.1f}s, buffer_size={self.frames_np.shape[0] / self.RATE:.1f}s"
+            )
+            start_time = time.time()
+            result = self.transcribe_audio(input_bytes)
+            last_trans_params = {
+                "b_size": self.frames_np.shape[0] / self.RATE,
+                "t_off": self.timestamp_offset,
+                "f_off": self.frames_offset,
+                "duration": duration,
+            }
 
-                    segments_to_send = {
-                            "confirmed": [],
-                            "current": "",
-                        }
+            print("[DEBUG result] whisper returned, result_count={}, t_off={:.1f}s".format(
+                len(result) if result is not None else "None", self.timestamp_offset))
+            if result is not None:
+                for i, s in enumerate(result):
+                    print(f"      segment[{i}]: start={s.start:.2f}s, end={s.end:.2f}s, text={s.text[:50] if s.text else 'empty'}")
+            print("Saved last_trans_params", last_trans_params)
+            print(
+                "duration:",
+                duration,
+                "transcribe time:",
+                time.time() - start_time,
+                "ratio:",
+                duration / (time.time() - start_time),
+                "result len:",
+                len(result) if result is not None else "None",
+            )
+            if result is None or self.language is None:
+                self.timestamp_offset += duration
+                print(
+                    f"[DEBUG no_speech] No speech detected, advancing timestamp_offset by {duration:.1f}s -> {self.timestamp_offset:.1f}s"
+                )
+                time.sleep(
+                    empty_result_sleep_time
+                )  # wait for voice activity, result is None when no voice activity
+                continue
 
-                    if len(result):
-                        self.t_start = None
+            for s in result:
+                print("    ", s.start, s.end, s.no_speech_prob, s.text)
 
-                        last_segment = self.update_segments(result, duration)
+            # return segments
 
-                        segments_to_send["confirmed"]= self.transcript[self.sent_segments :].copy()
-                        self.sent_segments = len(self.transcript)
+            segments_to_send = {
+                    "confirmed": [],
+                    "current": "",
+                }
 
-                        if last_segment is not None:
-                            segments_to_send["current"] = last_segment
-                    #     segments = self.prepare_segments(last_segment)
+            if len(result):
+                self.t_start = None
 
-                    # else:
-                    #     # show previous output if there is pause i.e. no output from whisper
-                    #     segments = self.get_previous_output()
+                last_segment = self.update_segments(result, duration)
 
-                        self.send_transcription_to_client( segments_to_send)
+                segments_to_send["confirmed"]= self.transcript[self.sent_segments :].copy()
+                self.sent_segments = len(self.transcript)
 
-                    print("Good, sleep 1s")
-                    time.sleep(good_result_sleep_time)
+                if last_segment is not None:
+                    segments_to_send["current"] = last_segment
 
-                # except Exception as e:
-                #     logging.error(f"[ERROR]: Failed to transcribe audio chunk: {e}")
-                #     time.sleep(0.01)
+                self.send_transcription_to_client( segments_to_send)
 
-            else:
-                self.clip_audio_if_no_valid_segment()
-
-                input_bytes, duration = self.get_audio_chunk_for_processing()
-                if duration < 1.0:
-                    continue
-                try:
-                    input_sample = input_bytes.copy()
-                    print("-" * 30)
-                    print(f"Runtime: {self.get_runtime()}s")
-                    print(
-                        f"Transcribe audio chunk with duration: {duration}, timestamp_offset: {self.timestamp_offset:.1f}s, frame_offset: {self.frames_offset:.1f}s, buffer size: {self.frames_np.shape[0] / self.RATE}"
-                    )
-                    start_time = time.time()
-                    result = self.transcribe_audio(input_sample)
-                    print(
-                        "duration:",
-                        duration,
-                        "transcribe time:",
-                        time.time() - start_time,
-                        "ratio:",
-                        duration / (time.time() - start_time),
-                    )
-                    print("result:", result)
-
-                    if result is None or self.language is None:
-                        self.timestamp_offset += duration
-                        time.sleep(
-                            0.25
-                        )  # wait for voice activity, result is None when no voice activity
-                        print("sleep 0.25")
-                        continue
-                    # print(result)
-                    self.handle_transcription_output(result, duration)
-                    # time.sleep(0.2)
-                    # print("sleep 0.2")
-
-                except Exception as e:
-                    logging.error(f"[ERROR]: Failed to transcribe audio chunk: {e}")
-                    time.sleep(0.01)
+            print(f"Good, sleep {good_result_sleep_time}s")
+            time.sleep(good_result_sleep_time)
 
     def format_segment(self, start, end, text):
         """
