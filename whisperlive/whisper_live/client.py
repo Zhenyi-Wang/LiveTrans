@@ -20,10 +20,6 @@ import websocket
 
 import whisper_live.utils as utils
 
-# 暂停释放 GPU: HTTP /pause 落盘状态文件(仓库根工作目录, 同 server.log 惯例), 崩溃重启可恢复
-PAUSE_STATE_FILE = "pause_state.json"
-PAUSE_MAX_HOURS = 48.0  # hours 上限, 防手滑输入过大值
-
 
 class Client:
     """
@@ -382,10 +378,7 @@ class TranscriptionTeeClient:
         self._server_command = None
         self._server_process = None
         if not self.clients:
-            # 暂停态启动(见 TranscriptionClient.__init__): 允许空 clients, 恢复时由 reconnect_clients 重建;
-            # 运行期空 clients 本就是合法态(断流 disconnect 后)
-            if not getattr(self, "_paused_startup", False):
-                raise Exception("At least one client is required.")
+            raise Exception("At least one client is required.")
         self.start_time = time.time()  # 追踪客户端开始运行时间
         self.chunk = 4096
         # self.chunk = 16000
@@ -407,12 +400,6 @@ class TranscriptionTeeClient:
         self._rms_events = collections.deque()  # (ts, rms_db), 30s 滑窗
         self.silence_db = float(os.environ.get("LIVETRANS_SILENCE_DB", "-60"))
         self.stream_fresh_sec = float(os.environ.get("LIVETRANS_STREAM_FRESH_SEC", "10"))
-
-        # 暂停释放 GPU: HTTP /pause 置位, handle_ffmpeg_process 检查点消费; 落盘 pause_state.json 崩溃可恢复
-        self.paused = False
-        self.resume_at = None  # epoch 秒
-        self.paused_at = None
-        self._pause_lock = threading.Lock()
         try:
             self.stream = self.p.open(
                 format=self.format,
@@ -809,53 +796,11 @@ class TranscriptionTeeClient:
 
         try:
             while True:
-                # 暂停检查点(外层顶部: 正常流态每包(256ms)经过一次;
-                # 断流退避态经 continue 也回到这里, 覆盖"ffmpeg 已 kill/sleep 退避中/刚 recreate"全部子状态)
-                if self.paused:
-                    print(f"[{Client.ts()}] [PAUSE] 暂停生效, teardown 释放 GPU (预计恢复: {self._fmt_resume()})")
-                    # teardown 严格幂等, 顺序与 finally 一致(先 WS 后 server, ffmpeg 最后)
-                    self.stop_stderr.set()
-                    if self.stderr_thread:
-                        self.stderr_thread.join(timeout=1)
-                    self.stop_stderr.clear()
-                    if self.clients:  # 写 SRT 保住已转录内容 + 关 WS(断流中途已 disconnect 则跳过)
-                        self.disconnect_clients()
-                    self.stop_server()  # 释放显存(未启动/已停止时自身幂等)
-                    if process:
-                        try:
-                            process.kill()
-                            process.poll()  # 主动 reap 防 zombie
-                        except ProcessLookupError:
-                            pass
-                    # 等待恢复(手动 /resume 或到期自动)
-                    self._wait_until_resume()
-                    # rebuild: 异常一律不吞——start_server(_wait_for_port 120s)/reconnect_clients
-                    # (SERVER_READY 60s) 失败让它冒泡 → finally → 进程退出 → main.py 拉起全新进程
-                    # (暂停文件已被 resume() 删除), 与现有"断流恢复失败→重启"语义一致
-                    print(f"[{Client.ts()}] [PAUSE] 恢复中: 重启 server/WS/ffmpeg")
-                    retry_delay = 2
-                    prev_retry_delay = retry_delay
-                    first_disconnect_time = None
-                    reconnect_count = 0
-                    server_stopped = False
-                    self.start_server()
-                    self.reconnect_clients()
-                    process = create_process_func()
-                    last_data_time = time.monotonic()  # 重置无数据计时: 暂停等待期可达数小时, 不重置会立刻误判
-                    half_sample_buf = b""
-                    self.stop_stderr.clear()
-                    self.stderr_thread = threading.Thread(target=self.consume_stderr, args=(process,))
-                    self.stderr_thread.start()
-                    print(f"[{Client.ts()}] [PAUSE] 已恢复 (ffmpeg pid={process.pid})")
                 # 用 select 轮询，避免阻塞 read() 导致无法响应 Ctrl+C
-                data_ready = False
                 no_data_timeout_hit = False
                 while True:
                     ready, _, _ = select.select([process.stdout], [], [], 0.5)
                     if ready:
-                        data_ready = True
-                        break
-                    if self.paused:  # 等数据期间暂停生效: 回外层顶部暂停块接管(ffmpeg 无输出也能停)
                         break
                     if time.monotonic() - last_data_time > no_data_timeout:
                         # 连接僵死: ffmpeg 未退出但持续无数据(如对端挂起不响应),
@@ -865,8 +810,6 @@ class TranscriptionTeeClient:
                 if no_data_timeout_hit:
                     print(f"[{Client.ts()}] [STREAM] {stream_type} stream no data for {no_data_timeout}s (ffmpeg hung), forcing reconnect")
                     in_bytes = b""  # 模拟 EOF, 走下方断流重连路径
-                elif not data_ready:
-                    continue
                 else:
                     # read1: 有多少读多少, 不等待填满——read(n) 会阻塞到读满 n 字节,
                     # 流"吐部分数据后挂起"时同样会绕过无数据超时
@@ -923,11 +866,7 @@ class TranscriptionTeeClient:
                         process.kill()
                     except ProcessLookupError:
                         pass
-                    # 分片 sleep: 90min 后退避到 60s 时, 暂停也能在 1s 内生效
-                    slept = 0
-                    while slept < retry_delay and not self.paused:
-                        time.sleep(1)
-                        slept += 1
+                    time.sleep(retry_delay)
 
                     # 重新创建 ffmpeg 进程
                     process = create_process_func()
@@ -1010,10 +949,6 @@ class TranscriptionTeeClient:
         return {
             "ok": True,
             "uptime_sec": int(time.time() - self.stream_started_at),
-            # 暂停释放 GPU 中: paused=true 时 stream/ws/asr 字段无意义(已 teardown)
-            "paused": self.paused,
-            "resume_at": int(self.resume_at * 1000) if self.resume_at else None,
-            "resume_at_iso": self._fmt_resume() if self.resume_at else None,
             "stream": {
                 "state": self.stream_state(),
                 "last_data_at": int(self.last_stream_data_at * 1000) if self.last_stream_data_at else None,
@@ -1026,84 +961,6 @@ class TranscriptionTeeClient:
                 if getattr(client, "last_segment_at", None) else None,
             },
         }
-
-    def _fmt_resume(self):
-        from datetime import datetime
-        return datetime.fromtimestamp(self.resume_at).strftime("%Y-%m-%d %H:%M:%S") if self.resume_at else "?"
-
-    def _peek_pause_file(self):
-        """只读状态文件, 不碰实例属性(供 TranscriptionClient.__init__ 分支判断)。
-        损坏/缺失/已过期一律返回 None; 过期残留与损坏文件顺手清理。"""
-        try:
-            with open(PAUSE_STATE_FILE) as f:
-                data = json.load(f)
-            resume_at = float(data["resume_at"])
-            if resume_at <= time.time():
-                os.remove(PAUSE_STATE_FILE)
-                return None
-            return data
-        except FileNotFoundError:
-            return None
-        except Exception as e:  # JSON 损坏/字段缺失等: 容错为无暂停
-            print(f"[PAUSE] 状态文件损坏({e}), 忽略并清理")
-            try:
-                os.remove(PAUSE_STATE_FILE)
-            except OSError:
-                pass
-            return None
-
-    def _save_pause_state(self):
-        """原子写(tmp + os.replace)防半写损坏。调用方需持 _pause_lock。"""
-        payload = {
-            "resume_at": self.resume_at,
-            "paused_at": self.paused_at,
-            "hours": (self.resume_at - self.paused_at) / 3600 if self.paused_at else None,
-        }
-        with open(PAUSE_STATE_FILE + ".tmp", "w") as f:
-            json.dump(payload, f)
-        os.replace(PAUSE_STATE_FILE + ".tmp", PAUSE_STATE_FILE)
-
-    def pause(self, hours):
-        """HTTP /pause 入口: 先落盘后置内存——两步之间崩溃, 新进程仍能从文件恢复暂停态。
-        重复调用覆盖(最新 resume_at 为准), 支持小数小时。"""
-        hours = float(hours)
-        if not (0 < hours <= PAUSE_MAX_HOURS):
-            raise ValueError(f"hours 须在 (0, {PAUSE_MAX_HOURS}] 之间, 收到 {hours}")
-        now = time.time()
-        with self._pause_lock:
-            self.resume_at = now + hours * 3600
-            self.paused_at = now
-            self._save_pause_state()
-            self.paused = True  # 置位放最后: 主循环只以 paused 为准
-        print(f"[{Client.ts()}] [PAUSE] 暂停 {hours}h, 预计恢复: {self._fmt_resume()}")
-        return self.resume_at
-
-    def resume(self, source="manual"):
-        """HTTP /resume 与到期自动恢复共用: 先删文件后置内存——两步之间崩溃,
-        新进程读到无文件会正常启动, 符合"用户已要求恢复"意图。幂等。"""
-        with self._pause_lock:
-            try:
-                os.remove(PAUSE_STATE_FILE)
-            except FileNotFoundError:
-                pass
-            self.paused = False
-            self.resume_at = None
-            self.paused_at = None
-        print(f"[{Client.ts()}] [PAUSE] 恢复(source={source})")
-
-    def _wait_until_resume(self):
-        """暂停等待循环(主线程): sleep(1) 轮询, 手动 /resume 或到期自动恢复。
-        Ctrl+C 在 sleep 中冒泡 → handle_ffmpeg_process 的 finally 清理, 与现有行为一致。"""
-        last_log = time.time()
-        while self.paused:
-            now = time.time()
-            if self.resume_at and now >= self.resume_at:
-                self.resume(source="expired")
-                return
-            if now - last_log > 60:  # 心跳日志, 防"看着像卡死"
-                print(f"[{Client.ts()}] [PAUSE] 暂停中, 剩余 {(self.resume_at - now) / 3600:.2f}h")
-                last_log = now
-            time.sleep(1)
 
     def get_rtsp_ffmpeg_process(self, rtsp_url):
         return (
@@ -1342,15 +1199,22 @@ class TranscriptionClient(TranscriptionTeeClient):
         dispatch_api=None,
         server_command=None,
     ):
+        # 如果配置了 server_command，先启动 server
         self._server_command = server_command
         self._server_process = None
-        # 落盘暂停态恢复(暂停期崩溃被 main.py 拉起的场景):
-        # 必须在 start_server / Client 创建【之前】拦截——Client 构造即启动 WS 线程,
-        # server 收到连接即加载模型占显存, 等到 __call__ 再拦截就晚了。
-        # 暂停期: 不启动 server 进程、不连 WS → 模型永不加载 → 零显存
-        pending = self._peek_pause_file()
-        self._paused_startup = pending is not None
+        if server_command:
+            self.start_server()
 
+        self.client = Client(
+            host,
+            port,
+            lang,
+            translate,
+            model,
+            srt_file_path=output_transcription_path,
+            use_vad=use_vad,
+            dispatch_api=dispatch_api,
+        )
         if save_output_recording and not output_recording_filename.endswith(".wav"):
             raise ValueError(
                 f"Please provide a valid `output_recording_filename`: {output_recording_filename}"
@@ -1359,46 +1223,12 @@ class TranscriptionClient(TranscriptionTeeClient):
             raise ValueError(
                 f"Please provide a valid `output_transcription_path`: {output_transcription_path}. The file extension should be `.srt`."
             )
-
-        if self._paused_startup:
-            print(f"[{Client.ts()}] [PAUSE] 启动时发现落盘暂停态, 剩余 "
-                  f"{(float(pending['resume_at']) - time.time()) / 3600:.2f}h, 跳过 server/WS 初始化")
-            self.client = None
-            server_process = None
-            TranscriptionTeeClient.__init__(
-                self,
-                [],
-                save_output_recording=save_output_recording,
-                output_recording_filename=output_recording_filename,
-            )
-        else:
-            # 如果配置了 server_command，先启动 server
-            if server_command:
-                self.start_server()
-
-            self.client = Client(
-                host,
-                port,
-                lang,
-                translate,
-                model,
-                srt_file_path=output_transcription_path,
-                use_vad=use_vad,
-                dispatch_api=dispatch_api,
-            )
-            server_process = self._server_process  # 先存: 下一行 TeeClient.__init__ 会重置为 None
-            TranscriptionTeeClient.__init__(
-                self,
-                [self.client],
-                save_output_recording=save_output_recording,
-                output_recording_filename=output_recording_filename,
-            )
-        # 恢复进程句柄: TeeClient.__init__ 会把 _server_command/_server_process 置 None
-        # (独立使用 TeeClient 时的默认值)。不恢复则 stop_server() 拿不到句柄静默 no-op,
-        # 断流90min 自动释放 GPU 与手动暂停的释放都会失效(存量 bug, 2026-09-29 修复)
-        self._server_command = server_command
-        self._server_process = server_process
-        # 两分支都要设置: 暂停恢复时 reconnect_clients 依赖 _client_params
+        TranscriptionTeeClient.__init__(
+            self,
+            [self.client],
+            save_output_recording=save_output_recording,
+            output_recording_filename=output_recording_filename,
+        )
         self._client_params = {
             "host": host,
             "port": port,
@@ -1409,8 +1239,3 @@ class TranscriptionClient(TranscriptionTeeClient):
             "srt_file_path": output_transcription_path,
             "dispatch_api": dispatch_api,
         }
-        # 应用暂停内存态(放最后: TeeClient.__init__ 会先初始化 paused=False)
-        if self._paused_startup:
-            self.paused = True
-            self.resume_at = float(pending["resume_at"])
-            self.paused_at = pending.get("paused_at")
