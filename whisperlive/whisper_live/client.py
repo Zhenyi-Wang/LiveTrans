@@ -794,7 +794,16 @@ class TranscriptionTeeClient:
         reconnect_count = 0  # 重连次数计数
         prev_retry_delay = retry_delay  # 用于检测退避变化
         audio_packet_count = 0  # 已发送的音频包计数
-        no_data_timeout = 60  # stdout 无数据超时：连接僵死(ffmpeg活着但不吐数据)时强制走断流重连
+        # stdout 无数据超时：连接僵死(ffmpeg活着但不吐数据)时强制走断流重连。
+        # 可用 LIVETRANS_NO_DATA_TIMEOUT 环境变量覆盖(秒), 空/非法/非正值回落 60
+        # (0或负数会令每次select轮询都触发强制重连,形成重连风暴,必须拒绝)
+        try:
+            no_data_timeout = int(os.environ.get("LIVETRANS_NO_DATA_TIMEOUT", "60"))
+        except ValueError:
+            no_data_timeout = 0  # 与非正值统一走回落提示
+        if no_data_timeout <= 0:
+            print(f"[{Client.ts()}] [STREAM] LIVETRANS_NO_DATA_TIMEOUT 非法(需正整数), 回落 60s")
+            no_data_timeout = 60
         last_data_time = time.monotonic()  # monotonic: 不受系统校时影响
         half_sample_buf = b""  # 跨轮次半样本缓存: read1 可能返回奇数字节, 拼到下轮头部保证 16bit 对齐
 
