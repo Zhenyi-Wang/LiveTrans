@@ -11,9 +11,6 @@ const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] // getUTCDay 
 
 interface TranscribeStatus {
   ok?: boolean
-  paused?: boolean // 暂停释放 GPU 中(HTTP /pause), 此时 stream/ws 字段无意义
-  resume_at?: number | null // epoch ms
-  resume_at_iso?: string | null
   uptime_sec?: number
   stream?: { state?: 'ok' | 'silent' | 'no_stream'; max_rms_db_30s?: number; last_data_at?: number | null }
   ws?: { recording?: boolean }
@@ -131,11 +128,6 @@ function fmtFullShanghai(now = Date.now()): string {
 
 function audioLine(probe: TranscribeStatus | null): string {
   if (!probe) return '❓ 未知（转录服务不可达，无法探测）'
-  if (probe.paused) {
-    // 暂停释放 GPU: 报出预计恢复时间, 管理员可判断是"有意暂停"还是"忘恢复"(可远程 POST /resume)
-    const t = probe.resume_at ? shanghaiNow(probe.resume_at) : null
-    return `⏸️ 转录已暂停（预计 ${t ? `${t.key} ${t.hhmm}` : '?'} 恢复）`
-  }
   const s = probe.stream || {}
   const db = typeof s.max_rms_db_30s === 'number' ? s.max_rms_db_30s.toFixed(1) : '?'
   if (s.state === 'ok') return `✅ 正常（峰值 ${db} dB）`
