@@ -784,10 +784,11 @@ class TranscriptionTeeClient:
         # stdout 无数据超时：连接僵死(ffmpeg活着但不吐数据)时强制走断流重连。
         # 可用 LIVETRANS_NO_DATA_TIMEOUT 环境变量覆盖(秒), 空/非法/非正值回落 60
         # (0或负数会令每次select轮询都触发强制重连,形成重连风暴,必须拒绝)
+        _env_timeout = os.environ.get("LIVETRANS_NO_DATA_TIMEOUT", "")
         try:
-            no_data_timeout = int(os.environ.get("LIVETRANS_NO_DATA_TIMEOUT", "60"))
+            no_data_timeout = int(_env_timeout) if _env_timeout else 60  # 空/未设置=静默用默认
         except ValueError:
-            no_data_timeout = 0  # 与非正值统一走回落提示
+            no_data_timeout = 0  # 显式非法值, 走回落提示
         if no_data_timeout <= 0:
             print(f"[{Client.ts()}] [STREAM] LIVETRANS_NO_DATA_TIMEOUT 非法(需正整数), 回落 60s")
             no_data_timeout = 60
